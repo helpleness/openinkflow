@@ -1,0 +1,76 @@
+# Copy this file to config.docker.yaml before running Docker Compose.
+# Keep the copied file local. Credentials are read from INKFLOW_* environment variables.
+system:
+  env: "docker"
+  addr: ":8888"
+  db-type: "pgsql"
+  db-path: "inkflow.db"
+
+auth:
+  session-cookie-name: "inkflow_session"
+  session-cookie-secure: true
+  session-cookie-same-site: "lax"
+  session-ttl-hours: 24
+  login-max-failures: 5
+  login-lock-minutes: 15
+  login-ip-limit: 30
+  login-ip-window-seconds: 600
+  captcha-ttl-seconds: 300
+  mfa-enrollment-required: false
+
+export:
+  office-command: "soffice"
+  timeout-seconds: 90
+
+ocr:
+  enabled: true
+  model-path: "/app/ocr/pp_doclayout_s.onnx"
+  score-threshold: 0.3
+  threads: 2
+
+oss:
+  endpoint: ""
+  bucket: ""
+  region: ""
+  signed-url-expire: "10m"
+
+llm:
+  base-url: ""
+  context-size: 4096
+  temperature: 0.7
+  timeout: 600
+  inference-provider: "frontend"
+  model-default: ""
+  top-p: 0.8
+  top-k: 40
+
+rag:
+  vector-backend: "pgvector"
+  vector-path: ""
+  vector-dimension: 1024
+  hnsw-m: 32
+  hnsw-ef-construction: 256
+  hnsw-ef-search: 64
+  embedding-cache-enabled: false
+  embedding-cache-path: "/app/.cache/embedding_cache.sqlite"
+
+pgsql:
+  path: "postgres"
+  port: "5432"
+  config: "sslmode=disable TimeZone=Asia/Shanghai"
+  db-name: "inkflow"
+  username: "inkflow"
+  max-idle-conns: 10
+  max-open-conns: 100
+  log-mode: "info"
+
+zap:
+  level: info
+  format: console
+  prefix: "[InkFlow]"
+  director: log
+  show-line: true
+  encode-level: LowercaseLevelEncoder
+  stacktrace-key: stacktrace
+  log-in-console: true
+  max-age: 7

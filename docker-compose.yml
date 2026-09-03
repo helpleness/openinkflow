@@ -1,0 +1,43 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    container_name: inkflow-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-inkflow}
+      POSTGRES_USER: ${POSTGRES_USER:-inkflow}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in an untracked .env file}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U inkflow -d inkflow"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  inkflow:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: inkflow
+    restart: unless-stopped
+    environment:
+      INKFLOW_AUTH_JWT_SECRET: ${INKFLOW_AUTH_JWT_SECRET:?Set INKFLOW_AUTH_JWT_SECRET in an untracked .env file}
+      INKFLOW_PGSQL_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in an untracked .env file}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8080:8888"
+    volumes:
+      - ./config.docker.yaml:/app/config.yaml:ro
+      - ./llama/llama.cpp/models:/app/llama/llama.cpp/models
+      - ./log:/app/log
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8888/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres-data:

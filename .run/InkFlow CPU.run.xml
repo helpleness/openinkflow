@@ -1,0 +1,23 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="InkFlow CPU" type="GoApplicationRunConfiguration" factoryName="Go Application">
+    <module name="InkFlow" />
+    <working_directory value="$PROJECT_DIR$" />
+    <envs>
+      <env name="CGO_ENABLED" value="1" />
+      <env name="GOFLAGS" value="-tags=inkflow_onnx" />
+      <env name="CGO_CFLAGS" value="-I$PROJECT_DIR$/third_party/usearch/windows_amd64" />
+      <env name="CGO_LDFLAGS" value="-L$PROJECT_DIR$/third_party/usearch/windows_amd64 -lusearch_c -lstdc++ -static-libgcc -static-libstdc++ -lwinpthread" />
+      <env name="GOCACHE" value="$PROJECT_DIR$/../InkFlow_cpu\.gocache" />
+      <env name="INKFLOW_ONNX_LAYOUT_DLL" value="$PROJECT_DIR$\build\package\InkFlowLayout.dll" />
+      <env name="INKFLOW_ONNX_LAYOUT_MODEL" value="$PROJECT_DIR$\build\package\ocr\pp_doclayout_s.onnx" />
+      <env name="PATH" value="$PROJECT_DIR$\build\package;D:\mingw64\bin;$PROJECT_DIR$\llama\cmake-build-cpu\bin;D:/MyGoPro/InkFlow_cpu\third_party\LiteRT-LM\bazel-bin\c;D:/MyGoPro/InkFlow_cpu\third_party\LiteRT-LM\prebuilt\windows_x86_64;$PATH$" />
+    </envs>
+    <kind value="PACKAGE" />
+    <package value="InkFlow" />
+    <directory value="$PROJECT_DIR$" />
+    <filePath value="$PROJECT_DIR$" />
+    <method v="2">
+      <option name="RunConfigurationTask" enabled="true" run_configuration_name="Prepare ONNX layout (Windows)" run_configuration_type="ShConfigurationType" />
+    </method>
+  </configuration>
+</component>

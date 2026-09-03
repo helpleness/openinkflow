@@ -1,0 +1,84 @@
+# If you prefer the allow list template instead of the deny list, see community template:
+# https://github.com/github/gitignore/blob/main/community/Golang/Go.AllowList.gitignore
+#
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary, built with `go test -c`
+*.test
+
+# Code coverage profiles and other test artifacts
+*.out
+coverage.*
+*.coverprofile
+profile.cov
+
+# Dependency directories (remove the comment below to include it)
+# vendor/
+
+# Go workspace file
+go.work
+go.work.sum
+.idea
+.gocache/
+.cache/
+.codex-tmp/
+build/package/
+build/installer/
+build/native/
+build/bench/
+build/debug/
+build/cpu/
+build/vulkan/
+build/config-selected/
+build/*.backend
+node_modules/
+web/dist/
+tmp/
+output/
+
+
+# Local build/runtime artifacts
+*.zip
+*.litertlm
+model/litertlm/
+model_cache/
+*.xnnpack_cache_*
+*_mldrift_program_cache.bin
+*_mldrift_weight_cache.bin
+log/
+third_party/
+!third_party/
+third_party/*
+!third_party/usearch/
+!third_party/usearch/**
+ocr/*.onnx
+ocr/manifest.json
+llama/cmake-build-*/
+profiling
+
+# env file
+.env
+.env.*
+!.env.example
+build_priv.sh
+
+# Local deployment configuration and credentials
+config.yaml
+config.docker.yaml
+*.pem
+*.p12
+*.pfx
+secrets/
+
+# Editor/IDE
+# .idea/
+# .vscode/
+.idea/workspace.xml
+.idea/modules.xml
+web/.idea/
+desktop_icon_windows_amd64.syso

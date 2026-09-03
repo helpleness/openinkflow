@@ -1,0 +1,81 @@
+package llamacpp
+
+// Options 同时服务于两类后端：
+// - Local（cgo 直连 llama.cpp）
+// - Server（HTTP 调用 llama-server）
+//
+// 未使用的字段会被忽略。
+type Options struct {
+	// -------- 通用生成参数 --------
+	ContextSize  int
+	Threads      int
+	ThreadsBatch int
+	MaxTokens    int
+	Temperature  float32
+	TopP         float32
+	MinKeep      int
+	Seed         int64
+
+	// -------- 本地推理参数（Local）--------
+	FlashAttnAuto bool
+
+	// -------- HTTP 推理参数（Server）--------
+	BaseURL      string // e.g. http://127.0.0.1:8080
+	Model        string // llama-server 可选 model 字段
+	SystemPrompt string
+	BatchSize    int
+	IsEmbedding  bool
+}
+
+type Message struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
+}
+
+func (o *Options) applyDefaults() {
+	if o.ContextSize <= 0 {
+		o.ContextSize = 2048
+	}
+	if o.Threads <= 0 {
+		o.Threads = 6
+	}
+	if o.ThreadsBatch <= 0 {
+		o.ThreadsBatch = o.Threads
+	}
+	if o.MaxTokens <= 0 {
+		o.MaxTokens = 1024
+	}
+	if o.TopP <= 0 {
+		o.TopP = 0.9
+	}
+	if o.MinKeep <= 0 {
+		o.MinKeep = 1
+	}
+	if o.Temperature <= 0 {
+		o.Temperature = 0.7
+	}
+	if o.SystemPrompt == "" {
+		o.SystemPrompt = "You are a helpful assistant."
+	}
+}
+
+func (o Options) resolvedBatchSizes() (batchSize int, ubatchSize int) {
+	if o.ContextSize <= 0 {
+		o.ContextSize = 2048
+	}
+	if o.IsEmbedding {
+		return o.ContextSize, o.ContextSize
+	}
+
+	batchSize = o.BatchSize
+	if batchSize <= 0 {
+		batchSize = 2048
+	}
+	if batchSize > o.ContextSize {
+		batchSize = o.ContextSize
+	}
+	if batchSize <= 0 {
+		batchSize = 1
+	}
+	return batchSize, batchSize
+}
