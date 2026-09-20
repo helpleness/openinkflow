@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <title>InkFlow Local AI Smoke Test</title>
+    <style>
+      body { font-family: ui-monospace, Consolas, monospace; margin: 24px; white-space: pre-wrap; }
+      .ok { color: #126b46; }
+      .fail { color: #a32626; }
+    </style>
+  </head>
+  <body>
+    <div id="status">starting</div>
+    <script type="module">
+      const statusEl = document.getElementById('status')
+      const events = []
+      let nextId = 0
+      const worker = new Worker('/src/ai/ai-worker.js?worker_file&type=module', { type: 'module' })
+      const pending = new Map()
+
+      function render(payload, failed = false) {
+        statusEl.className = failed ? 'fail' : 'ok'
+        statusEl.textContent = JSON.stringify(payload, null, 2)
+      }
+
+      worker.onmessage = (event) => {
+        events.push(event.data)
+        render({ phase: 'event', event: event.data, recent: events.slice(-8) })
+        const id = event.data?.id
+        if (!id || !pending.has(id)) return
+        const item = pending.get(id)
+        clearTimeout(item.timer)
+        pending.delete(id)
+        if (event.data.type === 'error') {
+          item.reject(new Error(event.data.error))
+        } else if (event.data.type === 'result') {
+          item.resolve(event.data.result)
+        }
+      }
+
+      function request(type, payload, timeoutMs) {
+        return new Promise((resolve, reject) => {
+          const id = ++nextId
+          const timer = setTimeout(() => {
+            pending.delete(id)
+            reject(new Error(`${type} timeout after ${timeoutMs}ms`))
+          }, timeoutMs)
+          pending.set(id, { resolve, reject, timer })
+          worker.postMessage({ type, id, payload })
+        })
+      }
+
+      try {
+        const mode = new URLSearchParams(location.search).get('mode') || 'all'
+        const init = await request('init', {}, 900000)
+        const embed = await request('embed', { text: '天赋是什么' }, 120000)
+        if (mode === 'embed') {
+          worker.terminate()
+          render({
+            ok: true,
+            mode,
+            init,
+            embedDim: Array.isArray(embed) ? embed.length : null,
+            embedHead: Array.isArray(embed) ? embed.slice(0, 5) : embed,
+            recent: events.slice(-20),
+          })
+        } else {
+        const rerank = await request('rerank', {
+          query: '天赋是什么',
+          docs: ['天赋是角色的隐性标尺。', '天气很好。', '规则库描述天道与劫难。'],
+          top_n: 2,
+        }, 180000)
+        worker.terminate()
+        render({
+          ok: true,
+          init,
+          embedDim: Array.isArray(embed) ? embed.length : null,
+          embedHead: Array.isArray(embed) ? embed.slice(0, 5) : embed,
+          rerank,
+          recent: events.slice(-20),
+        })
+        }
+      } catch (error) {
+        worker.terminate()
+        render({ ok: false, error: String(error?.message || error), recent: events.slice(-30) }, true)
+      }
+    </script>
+  </body>
+</html>

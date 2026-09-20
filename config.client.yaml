@@ -1,0 +1,74 @@
+# InkFlow Windows 客户端配置。
+# 安装程序首次安装时会将本文件复制为
+# %LOCALAPPDATA%\InkFlow\config.yaml；后续升级不会覆盖用户修改。
+# 修改后重启 InkFlow 生效。不要在此文件保存远端账号密码或 API Key。
+
+system:
+  env: "desktop"
+
+llm:
+  context-size: 4096
+  temperature: 0.7
+  timeout: 600
+  inference-provider: "local"
+
+rag:
+  vector-backend: "usearch"
+  vector-dimension: 1024
+  hnsw-m: 32
+  hnsw-ef-construction: 256
+  hnsw-ef-search: 64
+
+# 量化 ONNX 文档版面检测器。它只检测文字、表格、标题、图片等区域，不识别正文，
+# 不依赖 Python/PaddleX。模型随安装包放在程序目录，升级时可随程序一同更新。
+ocr:
+  enabled: true
+  score-threshold: 0.3
+  threads: 2
+
+zap:
+  level: "info"
+  format: "console"
+  prefix: "[InkFlow]"
+  encode-level: "LowercaseLevelEncoder"
+  stacktrace-key: "stacktrace"
+  max-age: 7
+  show-line: true
+  log-in-console: false
+
+llm-local:
+  # 该值与安装包内已经编译的 llama.cpp 后端一致，仅作运行状态标识。
+  # 修改它不能把 CPU 包切换为 CUDA/Vulkan 包。
+  backend: "__INKFLOW_BACKEND__"
+
+  chat:
+    model-path: ""
+    context-size: 4096
+    threads: 8
+    threads-batch: 8
+    flash-attn-auto: true
+    gpu-layers: __INKFLOW_GPU_LAYERS__
+    main-gpu: 0
+    split-mode: "none"
+
+  embedding:
+    model-path: ""
+    context-size: 2048
+    threads: 8
+    threads-batch: 8
+    flash-attn-auto: true
+    # 0 表示强制 CPU；-1 表示将支持的所有层卸载到 CUDA/Vulkan。
+    gpu-layers: __INKFLOW_GPU_LAYERS__
+    main-gpu: 0
+    split-mode: "none"
+
+  rerank:
+    model-path: ""
+    context-size: 8192
+    threads: 8
+    threads-batch: 8
+    flash-attn-auto: true
+    # 0 表示强制 CPU；-1 表示将支持的所有层卸载到 CUDA/Vulkan。
+    gpu-layers: __INKFLOW_GPU_LAYERS__
+    main-gpu: 0
+    split-mode: "none"

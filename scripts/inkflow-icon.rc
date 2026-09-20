@@ -1,0 +1,6 @@
+// Windows executable icon resource. The build script compiles this file into
+// desktop_icon_windows_amd64.syso before invoking go build.
+// Wails loads its application icon from resource ID 3 at runtime. Keep this
+// ID aligned with winc.AppIconID so the title bar uses the same icon as the
+// executable, installer, and shortcuts.
+3 ICON "assets/inkflow.ico"

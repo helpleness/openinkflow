@@ -1,0 +1,472 @@
+package utils
+
+import (
+	"regexp"
+	"strings"
+	"unicode"
+	"unicode/utf8"
+)
+
+const (
+	defaultMarkdownTargetTokens  = 320
+	defaultMarkdownMaxTokens     = 420
+	defaultMarkdownOverlapTokens = 48
+)
+
+var markdownHeadingRE = regexp.MustCompile(`^(#{1,6})\s+(.+?)\s*$`)
+
+// MarkdownBlock is the smallest deterministic unit sent to the extraction agent.
+//
+// ParentTitle, Title and Content are kept for compatibility with the old importer.
+// The extra fields make each block traceable and stable enough for memory/worldview RAG.
+type MarkdownBlock struct {
+	ParentTitle   string
+	Title         string
+	Content       string
+	HeadingPath   []string
+	Path          string
+	Level         int
+	SectionType   string
+	StartOffset   int
+	EndOffset     int
+	TokenEstimate int
+	Index         int
+}
+
+type markdownSection struct {
+	path        []string
+	level       int
+	startOffset int
+	lines       []lineSpan
+}
+
+type lineSpan struct {
+	text  string
+	start int
+	end   int
+}
+
+// LocalSplitMarkdown splits Markdown into stable, heading-aware blocks.
+//
+// It first respects Markdown heading hierarchy, then splits oversized sections by
+// paragraphs with a small overlap. Plain text without headings is handled as one
+// virtual root section, which is important for imported worldbuilding notes.
+func LocalSplitMarkdown(fullText string) []MarkdownBlock {
+	text := strings.ReplaceAll(fullText, "\r\n", "\n")
+	text = strings.ReplaceAll(text, "\r", "\n")
+	if strings.TrimSpace(text) == "" {
+		return nil
+	}
+
+	sections := collectMarkdownSections(text)
+	var blocks []MarkdownBlock
+	for _, section := range sections {
+		if len(section.lines) == 0 {
+			continue
+		}
+		blocks = append(blocks, splitMarkdownSection(section)...)
+	}
+
+	for i := range blocks {
+		blocks[i].Index = i
+	}
+	return blocks
+}
+
+func collectMarkdownSections(text string) []markdownSection {
+	var sections []markdownSection
+	var current *markdownSection
+	var headings [6]string
+
+	offset := 0
+	for _, rawLine := range strings.SplitAfter(text, "\n") {
+		line := strings.TrimSuffix(rawLine, "\n")
+		lineEnd := offset + len(line)
+		trimmed := strings.TrimSpace(line)
+
+		if matches := markdownHeadingRE.FindStringSubmatch(trimmed); len(matches) == 3 {
+			if current != nil && hasSectionContent(*current) {
+				sections = append(sections, *current)
+			}
+
+			level := len(matches[1])
+			title := strings.TrimSpace(matches[2])
+			headings[level-1] = title
+			for i := level; i < len(headings); i++ {
+				headings[i] = ""
+			}
+
+			path := compactHeadings(headings[:level])
+			current = &markdownSection{
+				path:        path,
+				level:       level,
+				startOffset: offset,
+			}
+
+			offset += len(rawLine)
+			continue
+		}
+
+		if current == nil {
+			current = &markdownSection{
+				path:        []string{"全文"},
+				level:       0,
+				startOffset: offset,
+			}
+		}
+
+		current.lines = append(current.lines, lineSpan{
+			text:  line,
+			start: offset,
+			end:   lineEnd,
+		})
+		offset += len(rawLine)
+	}
+
+	if current != nil && hasSectionContent(*current) {
+		sections = append(sections, *current)
+	}
+	return sections
+}
+
+func splitMarkdownSection(section markdownSection) []MarkdownBlock {
+	paragraphs := collectParagraphs(section.lines)
+	if len(paragraphs) == 0 {
+		return nil
+	}
+
+	var blocks []MarkdownBlock
+	var current []lineSpan
+	currentTokens := 0
+
+	flush := func() {
+		if len(current) == 0 {
+			return
+		}
+		blocks = append(blocks, makeMarkdownBlock(section, current, len(blocks)))
+		current = overlapLines(current, defaultMarkdownOverlapTokens)
+		currentTokens = estimateLinesTokens(current)
+	}
+
+	for _, paragraph := range paragraphs {
+		for _, piece := range splitOversizedParagraph(paragraph, defaultMarkdownMaxTokens) {
+			paragraphTokens := estimateLinesTokens(piece)
+			if len(current) > 0 && currentTokens+paragraphTokens > defaultMarkdownMaxTokens {
+				flush()
+			}
+
+			current = append(current, piece...)
+			currentTokens += paragraphTokens
+
+			if currentTokens >= defaultMarkdownTargetTokens {
+				flush()
+			}
+		}
+	}
+
+	if len(strings.TrimSpace(joinLines(current))) > 0 {
+		blocks = append(blocks, makeMarkdownBlock(section, current, len(blocks)))
+	}
+	return blocks
+}
+
+func collectParagraphs(lines []lineSpan) [][]lineSpan {
+	var paragraphs [][]lineSpan
+	var current []lineSpan
+	for _, line := range lines {
+		if strings.TrimSpace(line.text) == "" {
+			if len(current) > 0 {
+				paragraphs = append(paragraphs, current)
+				current = nil
+			}
+			continue
+		}
+		current = append(current, line)
+	}
+	if len(current) > 0 {
+		paragraphs = append(paragraphs, current)
+	}
+	return paragraphs
+}
+
+func splitOversizedParagraph(paragraph []lineSpan, maxTokens int) [][]lineSpan {
+	if len(paragraph) == 0 {
+		return nil
+	}
+	if estimateLinesTokens(paragraph) <= maxTokens {
+		return [][]lineSpan{paragraph}
+	}
+
+	var expanded []lineSpan
+	for _, line := range paragraph {
+		expanded = append(expanded, splitLineSpan(line, maxTokens)...)
+	}
+
+	var chunks [][]lineSpan
+	var current []lineSpan
+	currentTokens := 0
+	for _, line := range expanded {
+		lineTokens := estimateTextTokens(line.text)
+		if len(current) > 0 && currentTokens+lineTokens > maxTokens {
+			chunks = append(chunks, current)
+			current = nil
+			currentTokens = 0
+		}
+		current = append(current, line)
+		currentTokens += lineTokens
+	}
+	if len(current) > 0 {
+		chunks = append(chunks, current)
+	}
+	return chunks
+}
+
+func splitLineSpan(line lineSpan, maxTokens int) []lineSpan {
+	if strings.TrimSpace(line.text) == "" {
+		return nil
+	}
+	if estimateTextTokens(line.text) <= maxTokens {
+		return []lineSpan{line}
+	}
+
+	var spans []lineSpan
+	remaining := line.text
+	offset := line.start
+	for strings.TrimSpace(remaining) != "" {
+		if estimateTextTokens(remaining) <= maxTokens {
+			if span, ok := trimLineSpan(remaining, offset); ok {
+				spans = append(spans, span)
+			}
+			break
+		}
+
+		cut := findSplitOffset(remaining, maxTokens)
+		if cut <= 0 || cut >= len(remaining) {
+			cut = len(remaining)
+		}
+
+		if span, ok := trimLineSpan(remaining[:cut], offset); ok {
+			spans = append(spans, span)
+		}
+		offset += cut
+		remaining = remaining[cut:]
+	}
+	return spans
+}
+
+func trimLineSpan(text string, absoluteStart int) (lineSpan, bool) {
+	trimmedLeft := strings.TrimLeftFunc(text, unicode.IsSpace)
+	leadingBytes := len(text) - len(trimmedLeft)
+	trimmed := strings.TrimRightFunc(trimmedLeft, unicode.IsSpace)
+	if trimmed == "" {
+		return lineSpan{}, false
+	}
+	start := absoluteStart + leadingBytes
+	return lineSpan{
+		text:  trimmed,
+		start: start,
+		end:   start + len(trimmed),
+	}, true
+}
+
+func findSplitOffset(text string, maxTokens int) int {
+	tokens := 0
+	inASCIIWord := false
+	lastBreak := 0
+
+	for i, r := range text {
+		switch {
+		case r <= unicode.MaxASCII && (unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' || r == '-'):
+			if !inASCIIWord {
+				tokens++
+				inASCIIWord = true
+			}
+		case unicode.IsSpace(r):
+			inASCIIWord = false
+		default:
+			inASCIIWord = false
+			if !unicode.IsPunct(r) && !unicode.IsSymbol(r) {
+				tokens++
+			}
+		}
+
+		if isPreferredSplitRune(r) {
+			lastBreak = i + utf8.RuneLen(r)
+		}
+		if tokens > maxTokens {
+			if lastBreak > 0 {
+				return lastBreak
+			}
+			return i + utf8.RuneLen(r)
+		}
+	}
+	return len(text)
+}
+
+func isPreferredSplitRune(r rune) bool {
+	if unicode.IsSpace(r) {
+		return true
+	}
+	switch r {
+	case '。', '！', '？', '；', '：', '，', '、', '.', '!', '?', ';', ':', ',':
+		return true
+	default:
+		return false
+	}
+}
+
+func makeMarkdownBlock(section markdownSection, lines []lineSpan, part int) MarkdownBlock {
+	content := strings.TrimSpace(joinLines(lines))
+	path := append([]string(nil), section.path...)
+	if len(path) == 0 {
+		path = []string{"全文"}
+	}
+
+	title := path[len(path)-1]
+	if part > 0 {
+		title = title + " #" + intString(part+1)
+	}
+
+	parent := "全文"
+	if len(path) > 1 {
+		parent = strings.Join(path[:len(path)-1], " > ")
+	}
+
+	return MarkdownBlock{
+		ParentTitle:   parent,
+		Title:         title,
+		Content:       content,
+		HeadingPath:   path,
+		Path:          strings.Join(path, " > "),
+		Level:         section.level,
+		SectionType:   detectMarkdownSectionType(path, content),
+		StartOffset:   lines[0].start,
+		EndOffset:     lines[len(lines)-1].end,
+		TokenEstimate: estimateTextTokens(content),
+	}
+}
+
+func overlapLines(lines []lineSpan, maxTokens int) []lineSpan {
+	if maxTokens <= 0 || len(lines) == 0 {
+		return nil
+	}
+
+	total := 0
+	start := len(lines)
+	for i := len(lines) - 1; i >= 0; i-- {
+		lineTokens := estimateTextTokens(lines[i].text)
+		if total > 0 && total+lineTokens > maxTokens {
+			break
+		}
+		total += lineTokens
+		start = i
+	}
+
+	out := append([]lineSpan(nil), lines[start:]...)
+	return out
+}
+
+func detectMarkdownSectionType(path []string, content string) string {
+	text := strings.ToLower(strings.Join(path, " ") + " " + content)
+	switch {
+	case containsAny(text, "规则", "法则", "限制", "sop", "标准", "等级", "rule", "rules"):
+		return "rule"
+	case containsAny(text, "角色", "人物", "主角", "档案", "character"):
+		return "character"
+	case containsAny(text, "地点", "城市", "茶铺", "洞天", "location"):
+		return "location"
+	case containsAny(text, "物品", "道具", "术", "植物", "item", "spell"):
+		return "entity"
+	default:
+		return "lore"
+	}
+}
+
+func estimateLinesTokens(lines []lineSpan) int {
+	return estimateTextTokens(joinLines(lines))
+}
+
+func estimateTextTokens(text string) int {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return 0
+	}
+
+	tokens := 0
+	inASCIIWord := false
+	for _, r := range text {
+		switch {
+		case r <= unicode.MaxASCII && (unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' || r == '-'):
+			if !inASCIIWord {
+				tokens++
+				inASCIIWord = true
+			}
+		case unicode.IsSpace(r):
+			inASCIIWord = false
+		default:
+			inASCIIWord = false
+			if unicode.IsPunct(r) || unicode.IsSymbol(r) {
+				continue
+			}
+			tokens++
+		}
+	}
+	if tokens == 0 {
+		return 1
+	}
+	return tokens
+}
+
+func joinLines(lines []lineSpan) string {
+	var b strings.Builder
+	for i, line := range lines {
+		if i > 0 {
+			b.WriteByte('\n')
+		}
+		b.WriteString(line.text)
+	}
+	return b.String()
+}
+
+func hasSectionContent(section markdownSection) bool {
+	for _, line := range section.lines {
+		if strings.TrimSpace(line.text) != "" {
+			return true
+		}
+	}
+	return false
+}
+
+func compactHeadings(headings []string) []string {
+	out := make([]string, 0, len(headings))
+	for _, heading := range headings {
+		if strings.TrimSpace(heading) != "" {
+			out = append(out, strings.TrimSpace(heading))
+		}
+	}
+	return out
+}
+
+func containsAny(text string, needles ...string) bool {
+	for _, needle := range needles {
+		if strings.Contains(text, strings.ToLower(needle)) {
+			return true
+		}
+	}
+	return false
+}
+
+func intString(n int) string {
+	if n == 0 {
+		return "0"
+	}
+
+	var buf [20]byte
+	i := len(buf)
+	for n > 0 {
+		i--
+		buf[i] = byte('0' + n%10)
+		n /= 10
+	}
+	return string(buf[i:])
+}

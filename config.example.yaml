@@ -1,0 +1,166 @@
+system:
+  env: "develop"
+  addr: ":8888"
+  db-type: "sqlite"
+  db-path: "inkflow.db"
+  # 服务端首次部署时填写初始所有者；密码不要提交到 Git，可在服务器保留的 config.yaml 中配置。
+  # 服务启动会确保该账号成为默认租户的所有者；同一租户允许多个所有者。
+  bootstrap-owner-username: ""
+  bootstrap-owner-password: ""
+  bootstrap-organization: "默认组织"
+
+auth:
+  # 用于加密数据库中的用户模型 API Key；生产环境请替换并妥善保管。
+  jwt-secret: "change-this-local-development-secret"
+  # 空值时使用编译内置的首次登录地址；企业部署可指向自有认证服务。
+  remote-base-url: ""
+  remote-timeout-seconds: 15
+  # Web 版会话只保存在 HttpOnly Cookie，生产 HTTPS 必须设为 true。
+  session-cookie-name: "inkflow_session"
+  session-cookie-secure: false
+  session-cookie-same-site: "lax"
+  session-ttl-hours: 24
+  login-max-failures: 5
+  login-lock-minutes: 15
+  login-ip-limit: 30
+  login-ip-window-seconds: 600
+  captcha-ttl-seconds: 300
+  # true 时，本地账号通过密码和图片验证码后必须在独立页面绑定 MFA 才能进入系统。
+  mfa-enrollment-required: false
+
+  # OAuth 2.0 登录；Google/GitHub 的端点、Scope 和字段映射已内置默认值。
+  # public-base-url、frontend-base-url 和 redirects 省略时也使用内置默认值。
+  public-base-url: "http://localhost:8888"
+  frontend-base-url: "http://localhost:5173"
+  oauth-providers:
+    google:
+      enabled: true
+      client-id: "你的 Google Client ID"
+      client-secret: "你的 Google Client Secret"
+
+    github:
+      enabled: true
+      client-id: "你的 GitHub Client ID"
+      client-secret: "你的 GitHub Client Secret"
+
+# DOCX 由服务端内置生成。正式 PDF 通过服务器安装的 LibreOffice 转换；
+# 本地开发未安装时保持为空，PDF 导出接口会返回明确提示。
+export:
+  office-command: ""
+  timeout-seconds: 60
+
+concurrency:
+  node-id: 0
+  requests-per-second: 100
+  burst: 100
+  cache-entries: 1024
+
+# 量化 ONNX 文档版面检测器。它只检测文字、表格、标题、图片等区域，不做 OCR 正文识别。
+# 服务端部署可以按实际安装目录显式设置 model-path。
+ocr:
+  enabled: true
+  model-path: ""
+  score-threshold: 0.3
+  threads: 2
+
+# 私有阿里云 OSS。部署时在服务器保留的 config.yaml 中填写 RAM AccessKey；不要将密钥提交到 Git。
+# 深圳同地域 ECS 可将 endpoint 改为 oss-cn-shenzhen-internal.aliyuncs.com。
+oss:
+  endpoint: "oss-cn-shenzhen.aliyuncs.com"
+  bucket: "your-bucket"
+  region: "cn-shenzhen"
+  access-key-id: ""
+  access-key-secret: ""
+  signed-url-expire: "10m"
+
+llm:
+  # 不要在 YAML 中保存线上 API Key。登录后在前端“模型配置”页保存到数据库。
+  # openai | newapi | deepseek | qwen | openai-compatible
+  provider-type: "openai-compatible"
+  base-url: ""
+  api-key: ""
+  context-size: 4096
+  temperature: 0.7
+  timeout: 600
+  # Web 服务默认由浏览器 WebGPU worker 通过 WebSocket 生成向量；这样服务器
+  # 不需要额外携带 GGUF。仅无浏览器参与的离线部署才改为 local。
+  inference-provider: "frontend"
+  model-default: ""
+  top-p: 0.8       # 核采样概率 (0.0 - 1.0)，值越低越保守
+  top-k: 40        # 候选词数量，值越低越保守 (0 表示禁用)
+
+rag:
+  # 桌面端使用 USearch HNSW；服务端 PostgreSQL 使用 pgvector
+  vector-backend: "usearch"
+  vector-path: "./data/inkflow_vectors"
+  vector-dimension: 1024
+  hnsw-m: 32
+  hnsw-ef-construction: 256
+  hnsw-ef-search: 64
+  # 默认使用前端 WebGPU + 浏览器 IndexedDB 缓存；仅 local provider 才启用服务端 SQLite。
+  embedding-cache-enabled: false
+  embedding-cache-path: "./.cache/embedding_cache.sqlite"
+
+pgsql:
+  path: "127.0.0.1"
+  port: "5432"
+  config: "sslmode=disable TimeZone=Asia/Shanghai"
+  db-name: "inkflow"
+  username: "inkflow"
+  password: "change-me"
+  max-idle-conns: 10
+  max-open-conns: 100
+  log-mode: "info"
+
+zap:
+  level: info
+  format: console
+  prefix: "[LnkFlow]"
+  director: log
+  show-line: true
+  encode-level: LowercaseLevelEncoder
+  stacktrace-key: stacktrace
+  log-in-console: true
+  max-age: 7
+
+llm-local:
+  # 编译后端：cpu / cuda / vulkan / auto。
+  # build_client.ps1/build_installer.ps1 会自动构建并链接所选后端；直接 go build/go test 前需先构建后端。
+  # Vulkan 是独立的 ggml 后端，可使用支持 Vulkan 的核显；它不是 CUDA 兼容层。
+  backend: "vulkan"
+
+  chat:
+    model-path: ""
+    context-size: 4096
+    threads: 8
+    threads-batch: 8
+    flash-attn-auto: true
+    enable-embeddings: false
+    gpu-layers: -1
+    main-gpu: 0
+    split-mode: "none"
+    tensor-split: []
+
+  embedding:
+    # 只有 llm.inference-provider: "local" 时才需要配置后端本地 GGUF。
+    model-path: ""
+    context-size: 8192
+    threads: 8
+    threads-batch: 8
+    flash-attn-auto: true
+    gpu-layers: -1
+    main-gpu: 0
+    split-mode: "none"
+    tensor-split: []
+
+  rerank:
+    # 桌面端为空时，运行时使用 %LOCALAPPDATA%\InkFlow\models 下的默认模型。
+    model-path: ""
+    context-size: 8192
+    threads: 8
+    threads-batch: 8
+    flash-attn-auto: true
+    gpu-layers: -1
+    main-gpu: 0
+    split-mode: "none"
+    tensor-split: []

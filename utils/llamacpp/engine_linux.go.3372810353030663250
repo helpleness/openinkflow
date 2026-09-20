@@ -1,0 +1,155 @@
+//go:build linux && cgo
+
+package llamacpp
+
+/*
+#cgo CFLAGS: -I${SRCDIR}/../../llama/llama.cpp/include -I${SRCDIR}/../../llama/llama.cpp/ggml/include
+// 默认假设你把 llama.cpp 用 CMake 构建到 `llama/cmake-build-release`（和 Windows 目录名保持一致，便于复用脚本）
+// 例如：
+//   cmake -S llama -B llama/cmake-build-release -DCMAKE_BUILD_TYPE=Release
+//   cmake --build llama/cmake-build-release -j
+#cgo LDFLAGS: -L${SRCDIR}/../../lib -Wl,-rpath,${SRCDIR}/../../lib -lllama -lggml -lggml-base -lggml-cpu -lstdc++ -lm -ldl -pthread
+
+#include "llama.h"
+#include "ggml-cpu.h"
+#include <stdbool.h>
+#include <stdlib.h>
+
+static void inkflow_batch_add(struct llama_batch * batch, llama_token id, llama_pos pos, llama_seq_id seq_id, bool logits) {
+    batch->token[batch->n_tokens]    = id;
+    batch->pos[batch->n_tokens]      = pos;
+    batch->n_seq_id[batch->n_tokens] = 1;
+    batch->seq_id[batch->n_tokens][0]= seq_id;
+    batch->logits[batch->n_tokens]   = logits;
+    batch->n_tokens++;
+}
+*/
+import "C"
+
+import (
+	"errors"
+	"fmt"
+	"sync"
+	"unsafe"
+)
+
+var backendOnceLinux sync.Once
+
+func initBackend() {
+	backendOnceLinux.Do(func() {
+		C.llama_backend_init()
+		C.llama_numa_init(C.GGML_NUMA_STRATEGY_DISABLED)
+	})
+}
+
+type LocalEngine struct {
+	model *C.struct_llama_model
+	ctx   *C.struct_llama_context
+	vocab *C.struct_llama_vocab
+	smpl  *C.struct_llama_sampler
+
+	// chat state (used by ChatSession + Chat incremental eval)
+	sessionTokens []C.llama_token
+	nPast         int
+
+	// current sampler config (for ensureSampler)
+	curTopP    float32
+	curTemp    float32
+	curMinKeep int
+	curSeed    uint32
+
+	mu sync.Mutex
+}
+
+func newLocalEngine(modelPath string, opt Options) (Engine, error) {
+	initBackend()
+	opt.applyDefaults()
+
+	cModelPath := C.CString(modelPath)
+	defer C.free(unsafe.Pointer(cModelPath))
+
+	mp := C.llama_model_default_params()
+	model := C.llama_model_load_from_file(cModelPath, mp)
+	if model == nil {
+		return nil, fmt.Errorf("llama_model_load_from_file failed: %s", modelPath)
+	}
+
+	cp := C.llama_context_default_params()
+	cp.n_ctx = C.uint32_t(opt.ContextSize)
+	cp.n_threads = C.int(opt.Threads)
+	cp.n_threads_batch = C.int(opt.ThreadsBatch)
+	batchSize, ubatchSize := opt.resolvedBatchSizes()
+	cp.n_batch = C.uint32_t(batchSize)
+	cp.n_ubatch = C.uint32_t(ubatchSize)
+	if opt.FlashAttnAuto {
+		cp.flash_attn_type = C.LLAMA_FLASH_ATTN_TYPE_AUTO
+	}
+	cp.embeddings = true
+	if opt.IsEmbedding {
+		cp.pooling_type = 1
+	}
+
+	ctx := C.llama_init_from_model(model, cp)
+	if ctx == nil {
+		C.llama_model_free(model)
+		return nil, errors.New("llama_init_from_model failed")
+	}
+
+	vocab := C.llama_model_get_vocab(model)
+	if vocab == nil {
+		C.llama_free(ctx)
+		C.llama_model_free(model)
+		return nil, errors.New("llama_model_get_vocab returned nil")
+	}
+
+	// sampler chain: top_p + temp + dist(seed)
+	sp := C.llama_sampler_chain_default_params()
+	smpl := C.llama_sampler_chain_init(sp)
+	if smpl == nil {
+		C.llama_free(ctx)
+		C.llama_model_free(model)
+		return nil, errors.New("llama_sampler_chain_init failed")
+	}
+	C.llama_sampler_chain_add(smpl, C.llama_sampler_init_top_p(C.float(opt.TopP), C.size_t(opt.MinKeep)))
+	C.llama_sampler_chain_add(smpl, C.llama_sampler_init_temp(C.float(opt.Temperature)))
+	C.llama_sampler_chain_add(smpl, C.llama_sampler_init_dist(C.uint32_t(uint32(opt.Seed))))
+
+	return &LocalEngine{
+		model:      model,
+		ctx:        ctx,
+		vocab:      vocab,
+		smpl:       smpl,
+		curTopP:    opt.TopP,
+		curTemp:    opt.Temperature,
+		curMinKeep: opt.MinKeep,
+		curSeed:    uint32(opt.Seed),
+	}, nil
+}
+
+func (e *LocalEngine) Close() error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	if e.smpl != nil {
+		C.llama_sampler_free(e.smpl)
+		e.smpl = nil
+	}
+	if e.ctx != nil {
+		C.llama_free(e.ctx)
+		e.ctx = nil
+	}
+	if e.model != nil {
+		C.llama_model_free(e.model)
+		e.model = nil
+	}
+	e.vocab = nil
+	return nil
+}
+
+func (e *LocalEngine) Complete(prompt string, opt Options) (string, error) {
+	// Complete 保持“无状态”语义：每次都 Reset，再以单轮 user 的 messages 生成。
+	if err := e.Reset(); err != nil {
+		return "", err
+	}
+	return e.Chat([]Message{{Role: "user", Content: prompt}}, opt)
+}
