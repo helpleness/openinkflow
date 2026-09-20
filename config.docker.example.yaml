@@ -1,0 +1,115 @@
+system:
+  env: "docker"
+  addr: ":8888"
+  db-type: "pgsql"
+  db-path: "inkflow.db"
+
+auth:
+  jwt-secret: "change-this-in-production"
+  session-cookie-name: "inkflow_session"
+  session-cookie-secure: true
+  session-cookie-same-site: "lax"
+  session-ttl-hours: 24
+  login-max-failures: 5
+  login-lock-minutes: 15
+  login-ip-limit: 30
+  login-ip-window-seconds: 600
+  captcha-ttl-seconds: 300
+  mfa-enrollment-required: false
+
+# 生产镜像需安装 LibreOffice 和用于公文的中文字体；可使用绝对路径覆盖。
+export:
+  office-command: "soffice"
+  timeout-seconds: 90
+
+# Linux 容器镜像内置 PP-DocLayout-S 与 ONNX Runtime 桥接库；只检测图片版面，不做 OCR。
+ocr:
+  enabled: true
+  model-path: "/app/ocr/pp_doclayout_s.onnx"
+  score-threshold: 0.3
+  threads: 2
+
+# 在部署服务器保留的 config.docker.yaml 中填写 RAM AccessKey；不要将密钥提交到 Git。
+# 同地域 ECS 可以改为 oss-cn-shenzhen-internal.aliyuncs.com。
+oss:
+  endpoint: "oss-cn-shenzhen.aliyuncs.com"
+  bucket: "your-bucket"
+  region: "cn-shenzhen"
+  access-key-id: ""
+  access-key-secret: ""
+  signed-url-expire: "10m"
+
+llm:
+  base-url: ""
+  api-key: ""
+  context-size: 4096
+  temperature: 0.7
+  timeout: 600
+  inference-provider: "frontend" # frontend: browser WebSocket worker; local: server llama.cpp engines
+  model-default: ""
+  top-p: 0.8
+  top-k: 40
+
+rag:
+  vector-backend: "pgvector"
+  vector-path: ""
+  vector-dimension: 1024
+  hnsw-m: 32
+  hnsw-ef-construction: 256
+  # 默认使用前端 WebGPU + 浏览器 IndexedDB 缓存；仅 local provider 才启用服务端 SQLite。
+  embedding-cache-enabled: false
+  embedding-cache-path: "/app/.cache/embedding_cache.sqlite"
+
+pgsql:
+  path: "postgres"
+  port: "5432"
+  config: "sslmode=disable TimeZone=Asia/Shanghai"
+  db-name: "inkflow"
+  username: "inkflow"
+  password: "change-me"
+  max-idle-conns: 10
+  max-open-conns: 100
+  log-mode: "info"
+
+zap:
+  level: info
+  format: console
+  prefix: "[InkFlow]"
+  director: log
+  show-line: true
+  encode-level: LowercaseLevelEncoder
+  stacktrace-key: stacktrace
+  log-in-console: true
+  max-age: 7
+
+llm-local:
+  # Docker 默认使用 frontend 推理。只有将 llm.inference-provider 改为 local 时，
+  # 才需要挂载 GGUF 并填写下面对应引擎的 model-path。
+  backend: "cpu"
+  chat:
+    model-path: ""
+    context-size: 4096
+    threads: 4
+    threads-batch: 4
+    flash-attn-auto: true
+    gpu-layers: 0
+    main-gpu: 0
+    split-mode: "none"
+  embedding:
+    model-path: ""
+    context-size: 2048
+    threads: 4
+    threads-batch: 4
+    flash-attn-auto: true
+    gpu-layers: 0
+    main-gpu: 0
+    split-mode: "none"
+  rerank:
+    model-path: ""
+    context-size: 8192
+    threads: 4
+    threads-batch: 4
+    flash-attn-auto: true
+    gpu-layers: 0
+    main-gpu: 0
+    split-mode: "none"

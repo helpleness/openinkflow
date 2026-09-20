@@ -1,0 +1,27 @@
+package promptstore
+
+const (
+	AntiAIDraftRules        = "system.writer.anti_ai_rules"
+	DraftStyleDetector      = "system.writer.style_detector"
+	WriterScene             = "system.writer.scene"
+	WriterRewrite           = "system.writer.rewrite"
+	StylePolish             = "system.writer.polish"
+	DraftRevision           = "system.writer.revision"
+	UserStyleLearning       = "system.writer.style_learning"
+	UserStyleLearningTask   = "system.writer.style_learning_task"
+	PlannerOptions          = "system.planner.options"
+	OutlinerScenes          = "system.outliner.scenes"
+	CriticDraftReview       = "system.critic.draft_review"
+	ObserverExtraction      = "system.observer.extract_facts"
+	RAGChunkClassify        = "system.archivist.chunk_classify"
+	SettingExtraction       = "system.archivist.setting_extract"
+	MemoryCompression       = "system.archivist.memory_compress"
+	NPCResponse             = "system.interactive.npc_response"
+	DMSceneDescription      = "system.interactive.dm_scene"
+	DMActionResolve         = "system.interactive.dm_resolve"
+	RuleConflictCheck       = "system.rule.conflict_check"
+	RAGChatAnswer           = "system.rag.chat"
+	SemanticMarkdownSplit   = "system.chunker.semantic_markdown_splitter"
+	KnowledgeDocumentWriter = "system.knowledge.document_writer"
+	OutlineGraphManager     = "system.outline.graph_manager"
+)

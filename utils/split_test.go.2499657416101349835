@@ -1,0 +1,109 @@
+package utils
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+func TestLocalSplitMarkdownHeadingPath(t *testing.T) {
+	input := strings.Join([]string{
+		"# Root",
+		"",
+		"root intro",
+		"",
+		"## Rules",
+		"",
+		"no flying in the sealed city",
+		"",
+		"### Tea House",
+		"",
+		"the tea house accepts private commissions",
+	}, "\n")
+
+	blocks := LocalSplitMarkdown(input)
+	if len(blocks) != 3 {
+		t.Fatalf("expected 3 blocks, got %d: %#v", len(blocks), blocks)
+	}
+	if blocks[1].Path != "Root > Rules" {
+		t.Fatalf("unexpected second block path: %q", blocks[1].Path)
+	}
+	if blocks[2].Path != "Root > Rules > Tea House" {
+		t.Fatalf("unexpected third block path: %q", blocks[2].Path)
+	}
+	if blocks[1].SectionType != "rule" {
+		t.Fatalf("expected rule section type, got %q", blocks[1].SectionType)
+	}
+}
+
+func TestLocalSplitMarkdownWithNovelFixture(t *testing.T) {
+	path := filepath.Join("..", "测试数据.md")
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Skipf("fixture %s is not available: %v", path, err)
+	}
+
+	blocks := LocalSplitMarkdown(string(content))
+	if len(blocks) < 3 {
+		t.Fatalf("expected fixture to split into multiple blocks, got %d", len(blocks))
+	}
+
+	for _, block := range blocks {
+		if strings.TrimSpace(block.Content) == "" {
+			t.Fatalf("block %d has empty content", block.Index)
+		}
+		if block.Path == "" {
+			t.Fatalf("block %d has empty path", block.Index)
+		}
+		if block.TokenEstimate <= 0 {
+			t.Fatalf("block %d has invalid token estimate %d", block.Index, block.TokenEstimate)
+		}
+		if block.StartOffset < 0 || block.EndOffset <= block.StartOffset {
+			t.Fatalf("block %d has invalid offsets: %d-%d", block.Index, block.StartOffset, block.EndOffset)
+		}
+	}
+
+	t.Logf("fixture split into %d blocks; first=%q; last=%q", len(blocks), blocks[0].Path, blocks[len(blocks)-1].Path)
+}
+
+func TestLocalSplitMarkdownLimitsChunkSize(t *testing.T) {
+	line := strings.Repeat("设定内容，", 80)
+	input := "# Root\n\n## Lore\n\n" + strings.Join([]string{
+		line,
+		line,
+		line,
+		line,
+		line,
+		line,
+	}, "\n")
+
+	blocks := LocalSplitMarkdown(input)
+	if len(blocks) < 2 {
+		t.Fatalf("expected oversized section to split, got %d block(s)", len(blocks))
+	}
+
+	for _, block := range blocks {
+		if block.TokenEstimate > defaultMarkdownMaxTokens {
+			t.Fatalf("block %d token estimate = %d, want <= %d", block.Index, block.TokenEstimate, defaultMarkdownMaxTokens)
+		}
+	}
+}
+
+func TestLocalSplitMarkdownSplitsLongSingleLine(t *testing.T) {
+	input := "# Root\n\n" + strings.Repeat("这是一条很长的设定句子，用来测试自动切分能力。", 120)
+
+	blocks := LocalSplitMarkdown(input)
+	if len(blocks) < 2 {
+		t.Fatalf("expected long single line to split, got %d block(s)", len(blocks))
+	}
+
+	for _, block := range blocks {
+		if block.TokenEstimate > defaultMarkdownMaxTokens {
+			t.Fatalf("block %d token estimate = %d, want <= %d", block.Index, block.TokenEstimate, defaultMarkdownMaxTokens)
+		}
+		if strings.TrimSpace(block.Content) == "" {
+			t.Fatalf("block %d has empty content", block.Index)
+		}
+	}
+}
