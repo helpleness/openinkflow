@@ -134,6 +134,9 @@ func TestWritingEvidenceSelectionRemovesOnlyChosenRecords(t *testing.T) {
 	if len(retained.Items) != 2 || retained.Items[0].Citation != "[E1]" || retained.Items[1].Citation != "[E3]" || retained.Items[0].Content != candidates[0].Content || retained.Items[1].Content != candidates[2].Content {
 		t.Fatalf("retained evidence was altered: %#v", retained)
 	}
+	if len(retained.CandidateCitations) != 3 || retained.CandidateCitations[0] != "[E1]" || retained.CandidateCitations[1] != "[E2]" || retained.CandidateCitations[2] != "[E3]" {
+		t.Fatalf("candidate IDs missing from audit result: %#v", retained.CandidateCitations)
+	}
 	if strings.Contains(context, "无关材料") || len(retained.RemovedCitations) != 1 || retained.RemovedCitations[0] != "[E2]" {
 		t.Fatalf("removed evidence leaked into context: %s", context)
 	}

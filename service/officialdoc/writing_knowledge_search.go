@@ -53,9 +53,10 @@ type writingEvidenceDropDecision struct {
 }
 
 type writingPrunedEvidenceContext struct {
-	RemovedCitations []string                         `json:"removed_citations"`
-	IgnoredCitations []string                         `json:"ignored_citations,omitempty"`
-	Items            []writingKnowledgeSearchEvidence `json:"items"`
+	CandidateCitations []string                         `json:"candidate_citations"`
+	RemovedCitations   []string                         `json:"removed_citations"`
+	IgnoredCitations   []string                         `json:"ignored_citations,omitempty"`
+	Items              []writingKnowledgeSearchEvidence `json:"items"`
 }
 
 func (service *WritingRunService) registerKnowledgeSearchTool(registry *orchestrator.Registry, runID uint, maxCalls int) error {
@@ -139,7 +140,7 @@ func (service *WritingRunService) compressWritingToolContext(ctx context.Context
 		return "", err
 	}
 	if len(candidates) == 0 {
-		return `{"removed_citations":[],"items":[]}`, nil
+		return `{"candidate_citations":[],"removed_citations":[],"items":[]}`, nil
 	}
 	source, err := json.Marshal(candidates)
 	if err != nil {
@@ -208,8 +209,10 @@ func pruneWritingEvidenceContext(candidates []writingKnowledgeSearchEvidence, de
 		return "", fmt.Errorf("证据筛选模型未返回有效的 drop 编号列表")
 	}
 	known := make(map[string]bool, len(candidates))
+	candidateIDs := make([]string, 0, len(candidates))
 	for _, item := range candidates {
 		known[item.Citation] = true
+		candidateIDs = append(candidateIDs, item.Citation)
 	}
 	dropped := make(map[string]bool, len(decision.Drop))
 	removed := make([]string, 0, len(decision.Drop))
@@ -240,7 +243,7 @@ func pruneWritingEvidenceContext(candidates []writingKnowledgeSearchEvidence, de
 			retained = append(retained, item)
 		}
 	}
-	encoded, err := json.Marshal(writingPrunedEvidenceContext{RemovedCitations: removed, IgnoredCitations: ignored, Items: retained})
+	encoded, err := json.Marshal(writingPrunedEvidenceContext{CandidateCitations: candidateIDs, RemovedCitations: removed, IgnoredCitations: ignored, Items: retained})
 	if err != nil {
 		return "", fmt.Errorf("序列化保留证据失败: %w", err)
 	}
