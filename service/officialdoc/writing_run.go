@@ -5,6 +5,7 @@ import (
 	"InkFlow/utils/toolchain/orchestrator"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -389,14 +390,20 @@ func (service *WritingRunService) composeDocument(ctx context.Context, runID uin
 		},
 	})
 	if err != nil {
-		return nil, fmt.Errorf("写作模型请求失败: %w", err)
+		var outputLimit *domainllm.OutputLimitError
+		if !errors.As(err, &outputLimit) {
+			return nil, fmt.Errorf("写作模型请求失败: %w", err)
+		}
+		// A truncated compaction or tool-selection response is not a draft.
+		// Retry from the deduplicated, frozen evidence without tools instead.
+		_ = service.appendMessage(ctx, run.ID, round, "system", "", "模型编排或工具上下文压缩达到输出上限，正在使用已冻结的完整证据直接生成正文。")
 	}
 	content := ""
-	if result != nil && result.MessageFromModel {
+	if err == nil && result != nil && result.MessageFromModel {
 		content = strings.TrimSpace(result.Message)
 	} else {
-		// A tool trace summary is useful for the run ledger, but is not a draft.
-		// Retry once without tools using all evidence frozen during this run.
+		// Neither a trace summary nor a truncated response is a draft. Retry
+		// once without tools using all evidence frozen during this run.
 		_ = service.appendMessage(ctx, run.ID, round, "system", "", "写作模型未返回可保存的正文，正在使用已冻结证据重试一次无工具生成。")
 		latestEvidence, evidenceErr := service.runEvidence(ctx, run.ID)
 		if evidenceErr != nil {
