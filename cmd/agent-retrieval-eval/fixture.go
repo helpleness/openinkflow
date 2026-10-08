@@ -20,6 +20,7 @@ const fixtureCollection = vectorstore.Collection("officialdoc_knowledge_chunks")
 
 type validationReport struct {
 	Fixture           string            `json:"fixture"`
+	QueryMode         string            `json:"query_mode"`
 	DBRows            int               `json:"db_rows"`
 	IndexRows         uint              `json:"index_rows"`
 	IndexReloaded     bool              `json:"index_reloaded"`

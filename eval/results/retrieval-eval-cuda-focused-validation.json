@@ -1,6 +1,6 @@
 {
   "fixture": "SQLite knowledge_chunks + saved/reloaded USearch",
-  "query_mode": "full",
+  "query_mode": "focused",
   "db_rows": 40,
   "index_rows": 40,
   "index_reloaded": true,
@@ -10,13 +10,13 @@
   "exact_top10_total": 200,
   "exact_recall_at_k": {
     "1": {
-      "value": 0.025,
-      "numerator": 1,
+      "value": 0,
+      "numerator": 0,
       "denominator": 40
     },
     "10": {
-      "value": 0.375,
-      "numerator": 15,
+      "value": 0.425,
+      "numerator": 17,
       "denominator": 40
     },
     "3": {
@@ -25,8 +25,8 @@
       "denominator": 40
     },
     "5": {
-      "value": 0.25,
-      "numerator": 10,
+      "value": 0.275,
+      "numerator": 11,
       "denominator": 40
     }
   },

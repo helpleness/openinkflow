@@ -1,0 +1,66 @@
+{
+  "suite_version": "public-office-v1",
+  "task_count": 120,
+  "submitted_result_count": 20,
+  "missing_result_count": 100,
+  "retrieval_recall_at_k": {
+    "1": {
+      "value": 0,
+      "numerator": 0,
+      "denominator": 40
+    },
+    "10": {
+      "value": 0.425,
+      "numerator": 17,
+      "denominator": 40
+    },
+    "3": {
+      "value": 0.1,
+      "numerator": 4,
+      "denominator": 40
+    },
+    "5": {
+      "value": 0.275,
+      "numerator": 11,
+      "denominator": 40
+    }
+  },
+  "rerank_hit_rate_at_k": {
+    "1": {
+      "value": 0.7,
+      "numerator": 14,
+      "denominator": 20
+    },
+    "10": {
+      "value": 0.7,
+      "numerator": 14,
+      "denominator": 20
+    },
+    "3": {
+      "value": 0.7,
+      "numerator": 14,
+      "denominator": 20
+    },
+    "5": {
+      "value": 0.7,
+      "numerator": 14,
+      "denominator": 20
+    }
+  },
+  "tool_call_success_rate": {
+    "numerator": 0,
+    "denominator": 0
+  },
+  "citation_accuracy": {
+    "numerator": 0,
+    "denominator": 0
+  },
+  "task_success_rate": {
+    "numerator": 0,
+    "denominator": 0
+  },
+  "warnings": [
+    "some tasks have no result and are excluded from metric denominators",
+    "Task Success Rate requires task_passed from a configured judge"
+  ]
+}

@@ -20,6 +20,7 @@ func main() {
 	backend := flag.String("backend", "cpu", "cpu, cuda or vulkan; must match build tag and PATH")
 	embeddingPath := flag.String("embedding-model", "", "embedding GGUF model")
 	rerankPath := flag.String("rerank-model", "", "rerank GGUF model")
+	queryMode := flag.String("query-mode", "full", "full task prompt, focused retrieval query or topic only")
 	fixtureRoot := flag.String("fixture-root", "eval/.local", "directory for retained SQLite and USearch fixtures")
 	resultPath := flag.String("results", "eval/results/retrieval-eval.jsonl", "result JSONL path")
 	reportPath := flag.String("report", "eval/results/retrieval-eval-report.json", "score report JSON path")
@@ -30,6 +31,9 @@ func main() {
 	}
 	if *backend != "cpu" && *backend != "cuda" && *backend != "vulkan" {
 		fail("unsupported backend %q", *backend)
+	}
+	if *queryMode != "full" && *queryMode != "focused" && *queryMode != "topic" {
+		fail("unsupported query mode %q", *queryMode)
 	}
 	gpuLayers := 0
 	if *backend != "cpu" {
@@ -53,6 +57,7 @@ func main() {
 		fail("build file-backed fixture: %v", err)
 	}
 	defer fixture.Close()
+	fixture.Validation.QueryMode = *queryMode
 
 	ranker, err := llamacpp.NewLocal(*rerankPath, llamacpp.Options{ContextSize: llamacpp.RerankBatchTokens, Threads: 8, ThreadsBatch: 8, IsRerank: true, GPULayers: gpuLayers, BatchSize: llamacpp.RerankBatchTokens, PhysicalBatchSize: llamacpp.RerankBatchTokens, RerankMaxSequences: 2})
 	if err != nil {
@@ -66,7 +71,15 @@ func main() {
 		if task.Kind != eval.KindRetrieval {
 			continue
 		}
-		queryVector, err := embedding.Embedding(task.Prompt)
+		query := task.Prompt
+		switch *queryMode {
+		case "focused":
+			// Only use terms present in the user request, never gold chunk text or IDs.
+			query = task.Topic + " 办理事项 完成时限 承办责任"
+		case "topic":
+			query = task.Topic
+		}
+		queryVector, err := embedding.Embedding(query)
 		if err != nil {
 			fail("embed task %s: %v", task.ID, err)
 		}
@@ -95,7 +108,7 @@ func main() {
 			}
 		}
 		fixture.Validation.ExactTop10Total += len(exactIDs)
-		scores, err := ranker.Rerank(task.Prompt, docs)
+		scores, err := ranker.Rerank(query, docs)
 		if err != nil {
 			fail("rerank task %s: %v", task.ID, err)
 		}
