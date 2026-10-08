@@ -10,8 +10,8 @@
       "denominator": 40
     },
     "10": {
-      "value": 0.275,
-      "numerator": 11,
+      "value": 0.375,
+      "numerator": 15,
       "denominator": 40
     },
     "3": {
@@ -20,30 +20,30 @@
       "denominator": 40
     },
     "5": {
-      "value": 0.225,
-      "numerator": 9,
+      "value": 0.25,
+      "numerator": 10,
       "denominator": 40
     }
   },
   "rerank_hit_rate_at_k": {
     "1": {
-      "value": 0.5,
-      "numerator": 10,
+      "value": 0.7,
+      "numerator": 14,
       "denominator": 20
     },
     "10": {
-      "value": 0.5,
-      "numerator": 10,
+      "value": 0.7,
+      "numerator": 14,
       "denominator": 20
     },
     "3": {
-      "value": 0.5,
-      "numerator": 10,
+      "value": 0.7,
+      "numerator": 14,
       "denominator": 20
     },
     "5": {
-      "value": 0.5,
-      "numerator": 10,
+      "value": 0.7,
+      "numerator": 14,
       "denominator": 20
     }
   },

@@ -304,15 +304,15 @@ go run .
 
 [`eval/README.md`](eval/README.md) 定义了可复现的 `public-office-v1` 评测：20 个公文主题 × 检索、摘要、起草、改写、Tool Call、引用六类，共 **120 条任务**、40 个合成证据片段。计分器输出 Retrieval Recall@K、Rerank 命中率、Tool Call 成功率、Citation Accuracy 和 Task Success Rate，保留分子、分母；未执行的指标显示 N/A。
 
-2026-10-08 在 Windows 主机（Intel i9-13900HX，24 核/32 线程，32 GiB RAM，NVIDIA RTX 4060 Laptop GPU、8188 MiB 显存）上执行了其中 **20 条检索任务**。流程实际调用 Qwen3 Embedding 0.6B Q4、USearch 和 BGE-M3 Rerank Q4；检索使用 40 个公开合成片段。逐任务输出和计分报告在 [`eval/results/retrieval-eval-cuda-report.json`](eval/results/retrieval-eval-cuda-report.json)。
+2026-10-08 在 Windows 主机（Intel i9-13900HX，24 核/32 线程，32 GiB RAM，NVIDIA RTX 4060 Laptop GPU、8188 MiB 显存）上执行了其中 **20 条检索任务**。使用 40 个公开合成片段，写入独立 SQLite `knowledge_chunks` 表，按桌面端 HNSW 默认参数保存 USearch 索引，关闭并重载数据库和索引后，再调用 Qwen3 Embedding 0.6B Q4 向量检索与 BGE-M3 Rerank Q4。逐任务输出、计分报告和索引校验分别在 [`eval/results/retrieval-eval-cuda.jsonl`](eval/results/retrieval-eval-cuda.jsonl)、[`eval/results/retrieval-eval-cuda-report.json`](eval/results/retrieval-eval-cuda-report.json)、[`eval/results/retrieval-eval-cuda-validation.json`](eval/results/retrieval-eval-cuda-validation.json)。本项仍是向量检索分层评测，没有经过正式知识库的 FTS5 混合召回、权限过滤及 Chat Agent。
 
 | 指标 | 本次结果 | 样本 |
 | --- | ---: | ---: |
-| Retrieval Recall@1 / @3 / @5 / @10 | 2.5% / 10.0% / 22.5% / **27.5%** | 20 条检索任务，40 个 gold 片段 |
-| Rerank 命中率@1 / @3 / @5 / @10 | **50.0%** / 50.0% / 50.0% / 50.0% | 20 条检索任务；包含上游未召回的影响 |
+| Retrieval Recall@1 / @3 / @5 / @10 | 2.5% / 10.0% / 25.0% / **37.5%** | 20 条检索任务，40 个 gold 片段 |
+| Rerank 命中率@1 / @3 / @5 / @10 | **70.0%** / 70.0% / 70.0% / 70.0% | 20 条检索任务；包含上游未召回的影响 |
 | Tool Call 成功率 / Citation Accuracy / Task Success Rate | **N/A** | 尚未接入 Chat Agent 与答案评审，100 条非检索任务未执行 |
 
-结果显示这组模型在合成公文语料上的召回仍需改进；这组 20 条检索结果不能代替 120 条端到端 Agent 成功率。
+索引校验确认 SQLite 与重载后的 USearch 各有 40 条记录，40/40 条原向量自查询排第 1，20 次问题查询的 USearch Top10 与精确余弦 Top10 集合重合 **200/200**。因此，这组任务的剩余漏召回不能归因于索引文件损坏或 HNSW Top10 近似误差；还需单独评测 Embedding 与正式混合召回。旧版仅用内存索引得到的 27.5% / 50.0% 已由本次落盘复测替换。这组 20 条检索结果不能代替 120 条端到端 Agent 成功率。
 
 同一主机另用固定种子的 **100,000 条 × 384 维合成向量**建立 USearch HNSW 索引，查询 1,000 次、Top10：建索引 104.013 s；检索 **P50 1.199 ms / P95 2.285 ms**；向量自查询 Recall@10 **92.0%**；USearch 报告索引内存 **273.338 MiB**。它衡量向量索引性能，不能当作公文语义检索准确率。原始结果在 [`eval/results/retrieval-100k-windows.json`](eval/results/retrieval-100k-windows.json)。
 

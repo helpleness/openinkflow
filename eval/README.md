@@ -34,7 +34,19 @@ go run ./cmd/agent-eval score -results path/to/agent-results.jsonl -output path/
 
 ## 本机可复现的分层测试
 
-`cmd/agent-retrieval-eval` 对 20 条检索任务调用真实本地 GGUF Embedding、USearch 和 Rerank，输出逐任务轨迹及计分报告。它不会调用 Chat LLM，因此 Tool Call、引用和 Task Success Rate 仍需完整 Agent 适配器。
+`cmd/agent-retrieval-eval` 对 20 条检索任务调用真实本地 GGUF Embedding、SQLite、USearch 和 Rerank。它将合成片段写入独立的 SQLite `knowledge_chunks` 表，采用桌面端 HNSW 默认参数保存 `.usearch`，关闭并重载两者后才开始查询。默认将每次运行的数据库与索引保留在被 Git 忽略的 `eval/.local/retrieval-*` 中，可用 `-fixture-root` 指定根目录；`-validation` 输出行数、索引重载、自查询和精确余弦 Top10 对照。它尚未调用正式知识库的 FTS5 混合召回、权限过滤或 Chat LLM，因此 Tool Call、引用和 Task Success Rate 仍需完整 Agent 适配器。
+
+例如在已配置 CGO、USearch 和 CUDA DLL 路径的 Windows 环境运行：
+
+```powershell
+$models = Join-Path $env:LOCALAPPDATA 'InkFlow\models'
+go run -tags inkflow_cuda ./cmd/agent-retrieval-eval -backend cuda `
+  -embedding-model (Join-Path $models 'qwen3-embedding-0.6b-q4_k_m.gguf') `
+  -rerank-model (Join-Path $models 'bge-reranker-v2-m3-Q4_K_M.gguf') `
+  -results eval/results/retrieval-eval-cuda.jsonl `
+  -report eval/results/retrieval-eval-cuda-report.json `
+  -validation eval/results/retrieval-eval-cuda-validation.json
+```
 
 `cmd/agent-bench` 使用固定种子生成 10 万条合成向量，测量 HNSW 建索引时间、检索 P50/P95、原向量 Recall@K 和索引内存。该 Recall@K 是向量自查询命中率，不能代替公文语义检索 Recall@K。
 

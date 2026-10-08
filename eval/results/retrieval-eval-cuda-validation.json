@@ -1,0 +1,39 @@
+{
+  "fixture": "SQLite knowledge_chunks + saved/reloaded USearch",
+  "db_rows": 40,
+  "index_rows": 40,
+  "index_reloaded": true,
+  "self_top1_hits": 40,
+  "self_queries": 40,
+  "exact_top10_overlap": 200,
+  "exact_top10_total": 200,
+  "exact_recall_at_k": {
+    "1": {
+      "value": 0.025,
+      "numerator": 1,
+      "denominator": 40
+    },
+    "10": {
+      "value": 0.375,
+      "numerator": 15,
+      "denominator": 40
+    },
+    "3": {
+      "value": 0.1,
+      "numerator": 4,
+      "denominator": 40
+    },
+    "5": {
+      "value": 0.25,
+      "numerator": 10,
+      "denominator": 40
+    }
+  },
+  "hnsw": {
+    "metric": "cosine",
+    "quantization": "f32",
+    "connectivity": 32,
+    "expansion_add": 256,
+    "expansion_search": 64
+  }
+}
