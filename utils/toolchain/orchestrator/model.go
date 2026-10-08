@@ -102,31 +102,33 @@ func (state *runState) handleTextResponse(step int, message domainllm.Message) (
 
 	text := strings.TrimSpace(message.Content)
 	reasoning := strings.TrimSpace(message.ReasoningContent)
+	messageFromModel := text != ""
 	shouldSynthesize := len(state.ledger.Traces) > 0 && state.config.Synthesis.Enabled && (state.config.Synthesis.Always || text == "")
 	if shouldSynthesize {
-		text, reasoning = state.synthesizeOrSummarize()
+		text, reasoning, messageFromModel = state.synthesizeOrSummarize()
 	}
 	if text == "" && len(state.ledger.Traces) > 0 {
 		text = summarizeToolTraces(state.ledger.Traces)
+		messageFromModel = false
 	}
-	result := &RunResult{Message: text, Reasoning: reasoning, Traces: state.ledger.Traces}
+	result := &RunResult{Message: text, Reasoning: reasoning, Traces: state.ledger.Traces, MessageFromModel: messageFromModel}
 	emitRunEvent(state.config, "done", result)
 	return result, false, nil
 }
 
 // synthesizeOrSummarize prefers a configured model synthesis and falls back to
 // a protocol-neutral trace summary when no synthesis is available.
-func (state *runState) synthesizeOrSummarize() (string, string) {
+func (state *runState) synthesizeOrSummarize() (string, string, bool) {
 	message := summarizeToolTraces(state.ledger.Traces)
 	if state.config.Synthesis.Enabled {
 		emitRunEvent(state.config, "status", map[string]any{"message": "正在根据工具结果生成结论"})
 		if synthesized, reasoning, err := state.synthesizeToolAnswer(); err == nil && strings.TrimSpace(synthesized) != "" {
-			return synthesized, reasoning
+			return synthesized, reasoning, true
 		} else if err != nil {
 			message += "\n\n注意：工具结果二次总结失败，已退回工具摘要：" + err.Error()
 		}
 	}
-	return message, ""
+	return message, "", false
 }
 
 // synthesizeToolAnswer consumes recorded evidence without exposing tools.

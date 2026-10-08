@@ -105,8 +105,26 @@ func TestRunReturnsDirectTextAndReasoning(t *testing.T) {
 		}
 	}}, p)
 	result, err := state.run()
-	if err != nil || result.Message != "答案" || result.Reasoning != "理由" || done != 1 || len(p.requests) != 1 {
+	if err != nil || result.Message != "答案" || result.Reasoning != "理由" || !result.MessageFromModel || done != 1 || len(p.requests) != 1 {
 		t.Fatalf("result=%+v err=%v done=%d requests=%d", result, err, done, len(p.requests))
+	}
+}
+
+func TestToolSummaryIsNotModelResponse(t *testing.T) {
+	registry := NewRegistry()
+	registerTestTool(t, registry, Tool{Name: "document.search", Handler: func(context.Context, json.RawMessage) (any, error) {
+		return map[string]any{"content": "证据"}, nil
+	}})
+	p := &scriptedProvider{}
+	p.chat = func(context.Context, domainllm.ChatRequest) (*domainllm.ChatResponse, error) {
+		if len(p.requests) == 1 {
+			return toolDecision(domainllm.ToolCall{ID: "search-1", Name: "document_search", Arguments: json.RawMessage(`{}`)}), nil
+		}
+		return &domainllm.ChatResponse{Message: domainllm.Message{Role: "assistant"}}, nil
+	}
+	result, err := testRunState(t, registry, RunOptions{}, p).run()
+	if err != nil || result == nil || result.MessageFromModel || !strings.HasPrefix(result.Message, "工具执行摘要：") {
+		t.Fatalf("fallback must not be treated as model text: result=%+v err=%v", result, err)
 	}
 }
 

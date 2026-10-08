@@ -391,10 +391,31 @@ func (service *WritingRunService) composeDocument(ctx context.Context, runID uin
 		return nil, fmt.Errorf("写作模型请求失败: %w", err)
 	}
 	content := ""
-	if result != nil {
+	if result != nil && result.MessageFromModel {
 		content = strings.TrimSpace(result.Message)
+	} else {
+		// A tool trace summary is useful for the run ledger, but is not a draft.
+		// Retry once without tools using all evidence frozen during this run.
+		_ = service.appendMessage(ctx, run.ID, round, "system", "", "写作模型未返回可保存的正文，正在使用已冻结证据重试一次无工具生成。")
+		latestEvidence, evidenceErr := service.runEvidence(ctx, run.ID)
+		if evidenceErr != nil {
+			return nil, fmt.Errorf("读取补充检索证据失败: %w", evidenceErr)
+		}
+		retrySystem, retryUser := controlledWritingPrompt(run.Stage, task, template, latestEvidence)
+		retryUser += "\n请直接输出本阶段的完整中文 Markdown 文稿，不要输出工具调用记录或工具执行摘要。"
+		content, err = llmutil.GenerateMessages([]llmutil.Message{
+			{Role: "system", Content: retrySystem},
+			{Role: "user", Content: retryUser},
+		}, llmutil.GenerateOptions{
+			Context: ctx, LLM: &llmConfig, Model: llmConfig.ModelDefault,
+			Temperature: llmConfig.Temperature, MaxTokens: 8192,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("写作模型未生成正文，重新生成失败: %w", err)
+		}
+		content = strings.TrimSpace(content)
 	}
-	if strings.TrimSpace(content) == "" {
+	if content == "" || strings.HasPrefix(content, "工具执行摘要：") {
 		return nil, fmt.Errorf("写作模型未返回正文")
 	}
 	if err := global.GVA_DB.WithContext(ctx).Model(&model.WritingRun{}).Where("id = ?", run.ID).Updates(map[string]any{"generated_body": content, "model_name": llmConfig.ModelDefault, "current_step": writingStepCommitVersion}).Error; err != nil {

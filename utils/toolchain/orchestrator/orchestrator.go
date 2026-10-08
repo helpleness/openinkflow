@@ -79,6 +79,8 @@ type RunResult struct {
 	Message   string  `json:"message"`
 	Reasoning string  `json:"reasoning,omitempty"`
 	Traces    []Trace `json:"traces"`
+	// MessageFromModel is false for tool trace summaries and call-limit notices.
+	MessageFromModel bool `json:"message_from_model,omitempty"`
 }
 
 const (
@@ -391,17 +393,18 @@ func (state *runState) finishAfterCallLimit() (*RunResult, error) {
 	}
 	message := "工具调用次数已达上限，请根据已有工具结果给出当前最可靠的回答。"
 	reasoning := ""
+	messageFromModel := false
 	if state.config.Synthesis.Enabled && len(state.ledger.Traces) > 0 {
-		message, reasoning = state.synthesizeOrSummarize()
+		message, reasoning, messageFromModel = state.synthesizeOrSummarize()
 	}
-	result := &RunResult{Message: message, Reasoning: reasoning, Traces: state.ledger.Traces}
+	result := &RunResult{Message: message, Reasoning: reasoning, Traces: state.ledger.Traces, MessageFromModel: messageFromModel}
 	emitRunEvent(state.config, "done", result)
 	return result, nil
 }
 
 func (state *runState) finishToolRun() (*RunResult, error) {
-	message, reasoning := state.synthesizeOrSummarize()
-	result := &RunResult{Message: message, Reasoning: reasoning, Traces: state.ledger.Traces}
+	message, reasoning, messageFromModel := state.synthesizeOrSummarize()
+	result := &RunResult{Message: message, Reasoning: reasoning, Traces: state.ledger.Traces, MessageFromModel: messageFromModel}
 	emitRunEvent(state.config, "done", result)
 	return result, nil
 }
