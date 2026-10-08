@@ -1,6 +1,9 @@
 package eval
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestBuildSuiteHasBalancedPublicOfficeCoverage(t *testing.T) {
 	tasks := BuildSuite()
@@ -26,5 +29,26 @@ func TestBuildSuiteHasBalancedPublicOfficeCoverage(t *testing.T) {
 	}
 	if corpus := Corpus(); len(corpus) != 40 {
 		t.Fatalf("corpus chunks = %d, want 40", len(corpus))
+	}
+}
+
+func TestBuildSuiteKeepsToolPolicyOutOfUserQuestion(t *testing.T) {
+	var retrieval, toolCall Task
+	for _, task := range BuildSuite() {
+		switch task.ID {
+		case "retrieval-training":
+			retrieval = task
+		case "tool_call-training":
+			toolCall = task
+		}
+	}
+	if retrieval.UserPrompt != "业务培训的办理要求？" || toolCall.UserPrompt != retrieval.UserPrompt {
+		t.Fatalf("retrieval and tool-call user questions differ: %q, %q", retrieval.UserPrompt, toolCall.UserPrompt)
+	}
+	if strings.Contains(toolCall.UserPrompt, "knowledge.search") || strings.Contains(toolCall.UserPrompt, "先查询") {
+		t.Fatalf("tool policy leaked into user question: %q", toolCall.UserPrompt)
+	}
+	if !strings.Contains(toolCall.SystemInstruction, "knowledge.search") {
+		t.Fatalf("tool requirement missing from system instruction: %q", toolCall.SystemInstruction)
 	}
 }

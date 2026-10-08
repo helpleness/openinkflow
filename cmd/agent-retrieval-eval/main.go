@@ -20,7 +20,7 @@ func main() {
 	backend := flag.String("backend", "cpu", "cpu, cuda or vulkan; must match build tag and PATH")
 	embeddingPath := flag.String("embedding-model", "", "embedding GGUF model")
 	rerankPath := flag.String("rerank-model", "", "rerank GGUF model")
-	queryMode := flag.String("query-mode", "full", "full task prompt, focused retrieval query or topic only")
+	queryMode := flag.String("query-mode", "user", "user question, focused retrieval query or topic only")
 	fixtureRoot := flag.String("fixture-root", "eval/.local", "directory for retained SQLite and USearch fixtures")
 	resultPath := flag.String("results", "eval/results/retrieval-eval.jsonl", "result JSONL path")
 	reportPath := flag.String("report", "eval/results/retrieval-eval-report.json", "score report JSON path")
@@ -32,7 +32,7 @@ func main() {
 	if *backend != "cpu" && *backend != "cuda" && *backend != "vulkan" {
 		fail("unsupported backend %q", *backend)
 	}
-	if *queryMode != "full" && *queryMode != "focused" && *queryMode != "topic" {
+	if *queryMode != "user" && *queryMode != "focused" && *queryMode != "topic" {
 		fail("unsupported query mode %q", *queryMode)
 	}
 	gpuLayers := 0
@@ -71,7 +71,7 @@ func main() {
 		if task.Kind != eval.KindRetrieval {
 			continue
 		}
-		query := task.Prompt
+		query := task.UserPrompt
 		switch *queryMode {
 		case "focused":
 			// Only use terms present in the user request, never gold chunk text or IDs.

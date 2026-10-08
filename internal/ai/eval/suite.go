@@ -8,7 +8,7 @@ import (
 	"sort"
 )
 
-const SuiteVersion = "public-office-v1"
+const SuiteVersion = "public-office-v2"
 
 const (
 	KindRetrieval = "retrieval"
@@ -19,18 +19,19 @@ const (
 	KindCitation  = "citation"
 )
 
-// Task is one independently gradable agent request. RelevantChunkIDs and
-// ExpectedTools are labels for scoring; they are not injected into the agent
-// prompt. A runner should expose Corpus() to its retrieval tool.
+// Task is one independently gradable agent request. UserPrompt is the user's
+// question; SystemInstruction is an agent policy and must never be embedded as
+// a search query. RelevantChunkIDs and ExpectedTools are scoring labels only.
 type Task struct {
-	ID               string   `json:"id"`
-	SuiteVersion     string   `json:"suite_version"`
-	Kind             string   `json:"kind"`
-	Topic            string   `json:"topic"`
-	Prompt           string   `json:"prompt"`
-	RelevantChunkIDs []string `json:"relevant_chunk_ids,omitempty"`
-	ExpectedTools    []string `json:"expected_tools,omitempty"`
-	RequiredTerms    []string `json:"required_terms,omitempty"`
+	ID                string   `json:"id"`
+	SuiteVersion      string   `json:"suite_version"`
+	Kind              string   `json:"kind"`
+	Topic             string   `json:"topic"`
+	UserPrompt        string   `json:"user_prompt"`
+	SystemInstruction string   `json:"system_instruction"`
+	RelevantChunkIDs  []string `json:"relevant_chunk_ids,omitempty"`
+	ExpectedTools     []string `json:"expected_tools,omitempty"`
+	RequiredTerms     []string `json:"required_terms,omitempty"`
 }
 
 // CorpusChunk is intentionally small and synthetic. It gives a public runner
@@ -80,29 +81,36 @@ func BuildSuite() []Task {
 		relevant := []string{chunkID(item, 1), chunkID(item, 2)}
 		for _, kind := range []string{KindRetrieval, KindSummary, KindDraft, KindRewrite, KindToolCall, KindCitation} {
 			task := Task{
-				ID:               fmt.Sprintf("%s-%s", kind, item.Slug),
-				SuiteVersion:     SuiteVersion,
-				Kind:             kind,
-				Topic:            item.Name,
-				RelevantChunkIDs: append([]string(nil), relevant...),
+				ID:                fmt.Sprintf("%s-%s", kind, item.Slug),
+				SuiteVersion:      SuiteVersion,
+				Kind:              kind,
+				Topic:             item.Name,
+				RelevantChunkIDs:  append([]string(nil), relevant...),
+				SystemInstruction: "仅依据知识库中的可核查材料回答；证据不足时明确说明。",
 			}
 			switch kind {
 			case KindRetrieval:
-				task.Prompt = fmt.Sprintf("请检索与“%s”有关的依据，找出办理事项、时限和责任要求，并返回依据片段。", item.Name)
+				task.UserPrompt = fmt.Sprintf("%s的办理要求？", item.Name)
+				task.SystemInstruction += "检索知识库并返回相关依据片段。"
 			case KindSummary:
-				task.Prompt = fmt.Sprintf("依据知识库材料，概括%s工作的目标、办理动作和时限，控制在120字内。", item.Name)
+				task.UserPrompt = fmt.Sprintf("请概括%s的办理要求。", item.Name)
+				task.SystemInstruction += "摘要须包含目标、办理动作和时限，控制在120字内。"
 				task.RequiredTerms = []string{item.Action, item.Deadline}
 			case KindDraft:
-				task.Prompt = fmt.Sprintf("依据知识库材料，起草一则关于%s的工作通知，包含事项、责任分工和完成时限。", item.Name)
+				task.UserPrompt = fmt.Sprintf("请起草一则关于%s的工作通知。", item.Name)
+				task.SystemInstruction += "通知须包含事项、责任分工和完成时限。"
 				task.RequiredTerms = []string{item.Name, item.Deadline}
 			case KindRewrite:
-				task.Prompt = fmt.Sprintf("将“请大家尽快处理%s相关事情”改写为正式、明确的公文表述，写清办理动作和时限。", item.Name)
+				task.UserPrompt = fmt.Sprintf("请将“请大家尽快处理%s相关事情”改写为正式公文表述。", item.Name)
+				task.SystemInstruction += "改写须明确办理动作和完成时限。"
 				task.RequiredTerms = []string{item.Deadline}
 			case KindToolCall:
-				task.Prompt = fmt.Sprintf("先查询知识库，再回答%s的办理要求；回答前必须调用知识检索工具。", item.Name)
+				task.UserPrompt = fmt.Sprintf("%s的办理要求？", item.Name)
+				task.SystemInstruction += "回答前必须调用 knowledge.search 至少一次。"
 				task.ExpectedTools = []string{"knowledge.search"}
 			case KindCitation:
-				task.Prompt = fmt.Sprintf("依据知识库回答%s应如何办理，并在每项事实后标注所依据的片段编号。", item.Name)
+				task.UserPrompt = fmt.Sprintf("%s的办理要求？", item.Name)
+				task.SystemInstruction += "每项事实后须标注所依据的片段编号。"
 			}
 			tasks = append(tasks, task)
 		}

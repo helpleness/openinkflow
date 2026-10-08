@@ -1,6 +1,6 @@
-# 公文 Agent Eval（public-office-v1）
+# 公文 Agent Eval（public-office-v2）
 
-本目录只包含合成公文材料，不包含用户文件、密钥或业务数据。`public_office_tasks_v1.jsonl` 有 120 条任务：20 个主题 × 检索、摘要、起草、改写、Tool Call、引用六类；`public_office_corpus_v1.jsonl` 有 40 个可引用片段。任务及语料由 `internal/ai/eval` 确定性生成。
+本目录只包含合成公文材料，不包含用户文件、密钥或业务数据。`public_office_tasks_v2.jsonl` 有 120 条任务：20 个主题 × 检索、摘要、起草、改写、Tool Call、引用六类；`public_office_corpus_v1.jsonl` 有 40 个可引用片段。任务及语料由 `internal/ai/eval` 确定性生成。每条任务的 `user_prompt` 是用户实际提问，`system_instruction` 是工具使用、引用或格式约束。Agent 适配器应把两者作为不同角色传入；向量检索只嵌入 `user_prompt`，不得把系统约束拼进去。
 
 ```powershell
 go run ./cmd/agent-eval suite
@@ -36,7 +36,7 @@ go run ./cmd/agent-eval score -results path/to/agent-results.jsonl -output path/
 
 `cmd/agent-retrieval-eval` 对 20 条检索任务调用真实本地 GGUF Embedding、SQLite、USearch 和 Rerank。它将合成片段写入独立的 SQLite `knowledge_chunks` 表，采用桌面端 HNSW 默认参数保存 `.usearch`，关闭并重载两者后才开始查询。默认将每次运行的数据库与索引保留在被 Git 忽略的 `eval/.local/retrieval-*` 中，可用 `-fixture-root` 指定根目录；`-validation` 输出行数、索引重载、自查询和精确余弦 Top10 对照。它尚未调用正式知识库的 FTS5 混合召回、权限过滤或 Chat LLM，因此 Tool Call、引用和 Task Success Rate 仍需完整 Agent 适配器。
 
-`-query-mode full|focused|topic` 控制检索查询。`full` 直接使用任务提示词；`focused` 只使用提示词中的主题和办理事项、时限、责任目标；`topic` 仅用于诊断主题词的向量匹配能力。三种模式不改变语料、gold 标注或索引参数，应写入不同的结果文件。查询向量不包含系统提示词、gold 片段正文或片段 ID。
+`-query-mode user|focused|topic` 控制检索查询。默认的 `user` 直接使用 `user_prompt`；`focused` 使用主题和办理事项、时限、责任目标；`topic` 仅用于诊断主题词的向量匹配能力。三种模式不改变语料、gold 标注或索引参数，应写入不同的结果文件。查询向量不包含 `system_instruction`、gold 片段正文或片段 ID。
 
 例如在已配置 CGO、USearch 和 CUDA DLL 路径的 Windows 环境运行：
 

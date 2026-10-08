@@ -31,7 +31,7 @@ func main() {
 
 func runSuite(args []string) {
 	flags := flag.NewFlagSet("suite", flag.ExitOnError)
-	tasksPath := flags.String("tasks", "eval/public_office_tasks_v1.jsonl", "task JSONL output")
+	tasksPath := flags.String("tasks", "eval/public_office_tasks_v2.jsonl", "task JSONL output")
 	corpusPath := flags.String("corpus", "eval/public_office_corpus_v1.jsonl", "corpus JSONL output")
 	_ = flags.Parse(args)
 	must(writeJSONL(*tasksPath, eval.BuildSuite()))
