@@ -312,7 +312,7 @@ go run .
 | Rerank 命中率@1 / @3 / @5 / @10 | **100.0%** / 100.0% / 100.0% / 100.0% | 20 条检索任务；包含上游未召回的影响 |
 | Tool Call 成功率 / Citation Accuracy / Task Success Rate | **N/A** | 尚未接入 Chat Agent 与答案评审，100 条非检索任务未执行 |
 
-索引校验确认 SQLite 与重载后的 USearch 各有 40 条记录；从 SQLite 读回的 40 条向量、从 USearch 读回的 40 条向量均与模型输出逐维一致（最大绝对差均为 0）。40/40 条原向量自查询排第 1，20 次问题查询的 USearch Top10 与精确余弦 Top10 集合重合 **200/200**。本次索引为 1024 维、余弦距离、F32、HNSW M=32、efConstruction=256、efSearch=64。评测保留的文件位于 `eval/.local/retrieval-*/inkflow-eval.db` 和同目录的 `officialdoc_knowledge_chunks.usearch`。本地 llama.cpp Embedding 现遵循 Qwen3 GGUF 的 LAST pooling、模型默认的因果注意力，并为每个 token 传入实际位置。此前的低召回源于 Embedding 解码参数错误：所有 token 的位置被设为 0，且因果注意力被强制关闭；仅校验索引读写无法发现这类问题。尚未对模型输出与另一推理框架进行逐维交叉验证。
+索引校验确认 SQLite 与重载后的 USearch 各有 40 条记录；从 SQLite 读回的 40 条向量、从 USearch 读回的 40 条向量均与模型输出逐维一致（最大绝对差均为 0）。40/40 条原向量自查询排第 1，20 次问题查询的 USearch Top10 与精确余弦 Top10 集合重合 **200/200**。本次索引为 1024 维、余弦距离、F32、HNSW M=32、efConstruction=256、efSearch=64。评测保留的文件位于 `eval/.local/retrieval-*/inkflow-eval.db` 和同目录的 `officialdoc_knowledge_chunks.usearch`。本地 llama.cpp Embedding 遵循 Qwen3 GGUF 的 LAST pooling、模型默认的因果注意力，并为每个 token 传入实际位置。尚未对模型输出与另一推理框架进行逐维交叉验证。
 
 检索任务只将用户问题送入 Embedding；工具调用、引用和格式要求作为独立的系统约束。该语料只有 40 条结构相近的合成片段，本次结果不能外推为真实知识库或 120 条端到端 Agent 任务的准确率。完整逐题结果见 [`eval/results/`](eval/results/)。
 
