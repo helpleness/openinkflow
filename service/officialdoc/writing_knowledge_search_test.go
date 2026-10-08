@@ -137,15 +137,31 @@ func TestWritingEvidenceSelectionRemovesOnlyChosenRecords(t *testing.T) {
 	if strings.Contains(context, "无关材料") || len(retained.RemovedCitations) != 1 || retained.RemovedCitations[0] != "[E2]" {
 		t.Fatalf("removed evidence leaked into context: %s", context)
 	}
-	if _, err := pruneWritingEvidenceContext(candidates, `{"drop":["[E99]"]}`); err == nil {
-		t.Fatal("unknown citation was accepted")
+	withUnknown, err := pruneWritingEvidenceContext(candidates, `{"drop":["[E2]","[E99]"]}`)
+	if err != nil {
+		t.Fatalf("unknown citation must not fail the writing run: %v", err)
 	}
-	if _, err := pruneWritingEvidenceContext(candidates, `{"drop":[]}`); err != nil {
-		t.Fatalf("keeping all evidence should be valid: %v", err)
+	var reviewed writingPrunedEvidenceContext
+	if err := json.Unmarshal([]byte(withUnknown), &reviewed); err != nil {
+		t.Fatalf("decode reviewed evidence: %v", err)
+	}
+	if len(reviewed.RemovedCitations) != 1 || reviewed.RemovedCitations[0] != "[E2]" || len(reviewed.IgnoredCitations) != 1 || reviewed.IgnoredCitations[0] != "[E99]" || len(reviewed.Items) != 2 {
+		t.Fatalf("unknown citation affected retained evidence: %#v", reviewed)
 	}
 	pinned, err := writingEvidenceCandidates(items, 2)
 	if err != nil || len(pinned) != 1 || pinned[0].Citation != "[E3]" {
 		t.Fatalf("initial prompt evidence was offered for removal: %#v, %v", pinned, err)
+	}
+	withPinned, err := pruneWritingEvidenceContext(pinned, `{"drop":["[E1]","[E2]"]}`)
+	if err != nil {
+		t.Fatalf("pinned citations must be ignored: %v", err)
+	}
+	var pinnedReview writingPrunedEvidenceContext
+	if err := json.Unmarshal([]byte(withPinned), &pinnedReview); err != nil || len(pinnedReview.Items) != 1 || pinnedReview.Items[0].Citation != "[E3]" {
+		t.Fatalf("pinned citations removed a candidate: %#v, %v", pinnedReview, err)
+	}
+	if _, err := pruneWritingEvidenceContext(candidates, `{"drop":[]}`); err != nil {
+		t.Fatalf("keeping all evidence should be valid: %v", err)
 	}
 }
 
