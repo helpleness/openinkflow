@@ -28,6 +28,14 @@ func InitializeViper() *viper.Viper {
 	v := viper.New()
 	v.SetConfigFile("config.yaml") // 指定配置文件路径
 	v.SetConfigType("yaml")
+	// Docker passes deployment secrets through environment variables. Bind them
+	// explicitly so Unmarshal reads their values before the example YAML ones.
+	if err := v.BindEnv("auth.jwt-secret", "INKFLOW_AUTH_JWT_SECRET"); err != nil {
+		panic(fmt.Errorf("bind JWT secret environment variable: %w", err))
+	}
+	if err := v.BindEnv("pgsql.password", "INKFLOW_PGSQL_PASSWORD"); err != nil {
+		panic(fmt.Errorf("bind PostgreSQL password environment variable: %w", err))
+	}
 	v.SetDefault("auth.remote-timeout-seconds", 15)
 	v.SetDefault("auth.mfa-enrollment-required", false)
 

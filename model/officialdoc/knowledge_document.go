@@ -18,11 +18,13 @@ type KnowledgeDocument struct {
 	ContentType    string `json:"content_type" gorm:"size:128"`
 	ObjectKey      string `json:"-" gorm:"type:text;not null;default:''"`
 	// SHA256 identifies identical source content within one tenant and organization.
-	SHA256        string     `json:"sha256" gorm:"size:64;not null;index;uniqueIndex:idx_knowledge_documents_scope_sha256,priority:3"`
-	ChunkCount    int        `json:"chunk_count" gorm:"not null;default:0"`
-	Status        string     `json:"status" gorm:"size:32;not null;default:indexing;index"`
-	FailureReason string     `json:"failure_reason" gorm:"type:text"`
-	IndexedAt     *time.Time `json:"indexed_at"`
+	SHA256             string     `json:"sha256" gorm:"size:64;not null;index;uniqueIndex:idx_knowledge_documents_scope_sha256,priority:3"`
+	ChunkCount         int        `json:"chunk_count" gorm:"not null;default:0"`
+	Status             string     `json:"status" gorm:"size:32;not null;default:indexing;index"`
+	ProcessingStage    string     `json:"processing_stage" gorm:"size:64;not null;default:uploaded"`
+	ProcessingProgress int        `json:"processing_progress" gorm:"not null;default:0"`
+	FailureReason      string     `json:"failure_reason" gorm:"type:text"`
+	IndexedAt          *time.Time `json:"indexed_at"`
 }
 
 func (KnowledgeDocument) TableName() string { return "knowledge_documents" }

@@ -84,6 +84,21 @@ func (storage *OSSStorage) Upload(ctx context.Context, key string, reader io.Rea
 	return ctx.Err()
 }
 
+func (storage *OSSStorage) Download(ctx context.Context, key string) (io.ReadCloser, error) {
+	if err := validateOperation(ctx, key); err != nil {
+		return nil, err
+	}
+	reader, err := storage.bucket.GetObject(key)
+	if err != nil {
+		return nil, fmt.Errorf("download OSS object %q: %w", key, err)
+	}
+	if err := ctx.Err(); err != nil {
+		_ = reader.Close()
+		return nil, err
+	}
+	return reader, nil
+}
+
 func (storage *OSSStorage) Delete(ctx context.Context, key string) error {
 	if err := validateOperation(ctx, key); err != nil {
 		return err

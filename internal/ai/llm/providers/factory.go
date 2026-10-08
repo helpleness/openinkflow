@@ -24,7 +24,9 @@ const (
 func NormalizeType(raw string) (Type, error) {
 	normalized := Type(strings.ToLower(strings.TrimSpace(raw)))
 	switch normalized {
-	case TypeOpenAI, TypeDeepSeek, TypeQwen:
+	case "", TypeOpenAI:
+		return TypeOpenAI, nil
+	case TypeDeepSeek, TypeQwen:
 		return normalized, nil
 	default:
 		return "", fmt.Errorf("unsupported LLM provider type %q", raw)
@@ -47,16 +49,10 @@ func New(cfg config.LLM) (llm.Provider, error) {
 	}
 
 	switch typeName {
-	case TypeOpenAI:
+	case TypeOpenAI, TypeQwen:
 		return openaicompat.NewOpenAIProvider(base)
-	//case TypeNewAPI:
-	//	return NewNewAPIProvider(base)
-	//case TypeDeepSeek:
-	//	return NewDeepSeekProvider(base)
-	//case TypeQwen:
-	//	return NewQwenProvider(base)
-	//case TypeOpenAICompatible:
-	//	return NewOpenAICompatibleProvider(base)
+	case TypeDeepSeek:
+		return openaicompat.NewDeepSeekProvider(base)
 	default:
 		return nil, fmt.Errorf("unsupported LLM provider type %q", typeName)
 	}

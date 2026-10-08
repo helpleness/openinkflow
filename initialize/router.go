@@ -83,6 +83,7 @@ func Routers() *gin.Engine {
 	systemRoutes.SysModelSettingRouter.InitSysModelSettingRouter(systemPrivateRouter, systemPublicRouter)
 	systemRoutes.SysMCPServerRouter.InitSysMCPServerRouter(systemPrivateRouter, systemPublicRouter)
 	systemRoutes.SysInferenceRouter.InitSysInferenceRouter(systemPrivateRouter, systemPublicRouter)
+	systemRoutes.AIChatRouter.InitAIChatRouter(systemPrivateRouter, systemPublicRouter)
 	routes.OfficialDocRouterGroup.InitOfficialDocRouter(systemPrivateRouter, systemPublicRouter)
 	if err := appService.ServiceGroupApp.SystemServiceGroup.SysApiService.SyncSysApis(context.Background(), Router.Routes()); err != nil {
 		panic(fmt.Errorf("sync system APIs: %w", err))

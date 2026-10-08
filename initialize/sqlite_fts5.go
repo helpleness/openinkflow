@@ -11,6 +11,7 @@ import (
 
 const sqliteFTS5Table = "inkflow_fts"
 const knowledgeChunkFTSCollection = "officialdoc_knowledge_chunks"
+const aiChatTurnMemoryFTSCollection = "sys_ai_chat_turn_memories"
 
 // initializeSQLiteFTS5 先建立全文索引结构，再创建实现统一 Store 契约的 FTS5 适配器。
 func initializeSQLiteFTS5(ctx context.Context, db *gorm.DB) (vectorstore.Store, error) {
@@ -41,6 +42,16 @@ func ensureSQLiteFTS5Schema(ctx context.Context, db *gorm.DB) error {
 		`CREATE TRIGGER IF NOT EXISTS knowledge_chunks_fts_delete AFTER DELETE ON knowledge_chunks BEGIN
 			DELETE FROM inkflow_fts WHERE collection = 'officialdoc_knowledge_chunks' AND record_id = old.id;
 		END`,
+		`CREATE TRIGGER IF NOT EXISTS ai_chat_turn_memories_fts_insert AFTER INSERT ON sys_ai_chat_turn_memories BEGIN
+			INSERT INTO inkflow_fts(collection, record_id, content) VALUES ('sys_ai_chat_turn_memories', new.id, trim(coalesce(new.question, '') || ' ' || coalesce(new.answer, '')));
+		END`,
+		`CREATE TRIGGER IF NOT EXISTS ai_chat_turn_memories_fts_update AFTER UPDATE OF question, answer ON sys_ai_chat_turn_memories BEGIN
+			DELETE FROM inkflow_fts WHERE collection = 'sys_ai_chat_turn_memories' AND record_id = old.id;
+			INSERT INTO inkflow_fts(collection, record_id, content) VALUES ('sys_ai_chat_turn_memories', new.id, trim(coalesce(new.question, '') || ' ' || coalesce(new.answer, '')));
+		END`,
+		`CREATE TRIGGER IF NOT EXISTS ai_chat_turn_memories_fts_delete AFTER DELETE ON sys_ai_chat_turn_memories BEGIN
+			DELETE FROM inkflow_fts WHERE collection = 'sys_ai_chat_turn_memories' AND record_id = old.id;
+		END`,
 	}
 	// 所有 DDL、触发器和回填在同一事务内完成，失败时不留下半初始化状态。
 	return db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
@@ -56,6 +67,14 @@ func ensureSQLiteFTS5Schema(ctx context.Context, db *gorm.DB) error {
 			SELECT ?, id, trim(coalesce(title, '') || ' ' || coalesce(parent_title, '') || ' ' || coalesce(content, ''))
 			FROM knowledge_chunks WHERE deleted_at IS NULL`, knowledgeChunkFTSCollection).Error; err != nil {
 			return fmt.Errorf("backfill knowledge SQLite FTS5 records: %w", err)
+		}
+		if err := tx.Exec("DELETE FROM "+sqliteFTS5Table+" WHERE collection = ?", aiChatTurnMemoryFTSCollection).Error; err != nil {
+			return fmt.Errorf("clear AI chat SQLite FTS5 records: %w", err)
+		}
+		if err := tx.Exec(`INSERT INTO inkflow_fts(collection, record_id, content)
+			SELECT ?, id, trim(coalesce(question, '') || ' ' || coalesce(answer, ''))
+			FROM sys_ai_chat_turn_memories WHERE deleted_at IS NULL`, aiChatTurnMemoryFTSCollection).Error; err != nil {
+			return fmt.Errorf("backfill AI chat SQLite FTS5 records: %w", err)
 		}
 		return nil
 	})

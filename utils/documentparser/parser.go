@@ -45,7 +45,7 @@ func (parser) Parse(ctx context.Context, filename string, input io.Reader) (Resu
 	case ".pptx":
 		return parsePPTX(data)
 	case ".pdf":
-		return parsePDF(data)
+		return parsePDF(ctx, data)
 	case ".doc", ".xls", ".ppt":
 		return Result{}, ErrLegacyOffice
 	default:

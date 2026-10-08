@@ -306,22 +306,22 @@ func isolatedToolProgressContext(traces []Trace, maxRunes int) string {
 	}
 
 	evidence := make([]string, 0, 4)
-	seenQueries := map[string]bool{}
+	seenResults := map[string]bool{}
 	for index := len(traces) - 1; index >= 0 && len(evidence) < 4; index-- {
 		trace := traces[index]
-		queryKey := trace.ToolName + ":" + string(trace.Input)
-		if trace.Kind != KindQuery || trace.Status != "ok" || seenQueries[queryKey] {
+		resultKey := trace.ToolName + ":" + string(trace.Input)
+		if trace.contextArchived || (trace.Kind != KindQuery && trace.Kind != KindLLM) || trace.Status != "ok" || seenResults[resultKey] {
 			continue
 		}
-		seenQueries[queryKey] = true
+		seenResults[resultKey] = true
 		context := trace.outputContext
 		if strings.TrimSpace(context) == "" {
 			context = trace.OutputSummary
 		}
-		evidence = append(evidence, fmt.Sprintf("工具 %s 的有效结果（越靠前越新）：%s", trace.ToolName, utils.TruncateRunes(context, 1200)))
+		evidence = append(evidence, fmt.Sprintf("工具 %s 的有效结果（越靠前越新）：%s", trace.ToolName, utils.TruncateRunes(context, 2000)))
 	}
 	if len(evidence) > 0 {
-		progress.WriteString("\n最近有效查询结果：\n")
+		progress.WriteString("\n最近有效只读或模型归纳结果：\n")
 		progress.WriteString(strings.Join(evidence, "\n\n"))
 	}
 	return utils.TruncateRunes(progress.String(), maxRunes)

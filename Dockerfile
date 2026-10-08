@@ -9,11 +9,20 @@ COPY web/ ./
 RUN npm run build
 
 
-FROM golang:1.24.12-bookworm AS app-builder
+FROM golang:1.25-bookworm AS app-builder
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends build-essential ca-certificates cmake curl pkg-config tar \
     && rm -rf /var/lib/apt/lists/*
+
+ARG USEARCH_VERSION=2.25.3
+ARG USEARCH_SHA256=18748a2507b257c3a9e42562fef3c52291bce0fd6026611cdc3e242532411e71
+RUN curl -fsSL \
+        "https://github.com/unum-cloud/USearch/releases/download/v${USEARCH_VERSION}/usearch_linux_amd64_${USEARCH_VERSION}.deb" \
+        -o /tmp/usearch.deb \
+    && echo "${USEARCH_SHA256}  /tmp/usearch.deb" | sha256sum -c - \
+    && dpkg -i /tmp/usearch.deb \
+    && rm -f /tmp/usearch.deb
 
 WORKDIR /src
 
@@ -27,7 +36,8 @@ RUN cmake -S llama -B llama/cmake-build-release -DCMAKE_BUILD_TYPE=Release \
     && cmake --build llama/cmake-build-release -j"$(nproc)"
 
 RUN mkdir -p lib \
-    && find ./llama/cmake-build-release -name "*.so*" -exec cp {} ./lib/ \;
+    && find ./llama/cmake-build-release -name "*.so*" -exec cp {} ./lib/ \; \
+    && cp /usr/local/lib/libusearch_c.so ./lib/
 
 RUN bash ./scripts/build_onnx_layout.sh
 
@@ -37,7 +47,7 @@ RUN CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -tags inkflow_onnx -trimpath 
 FROM debian:bookworm-slim
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates curl libgomp1 libstdc++6 \
+    && apt-get install -y --no-install-recommends ca-certificates curl libgomp1 libstdc++6 poppler-utils \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

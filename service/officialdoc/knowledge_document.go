@@ -22,19 +22,30 @@ import (
 	"InkFlow/utils/documentparser"
 	llmutil "InkFlow/utils/llm"
 	"InkFlow/utils/storage"
+	"InkFlow/utils/vectorstore"
 
+	"go.uber.org/zap"
 	"gorm.io/gorm"
 )
 
 const maxKnowledgeDocumentSize = 200 << 20
 
+const (
+	knowledgeStageQueued          = "queued"
+	knowledgeStageParsing         = "parsing"
+	knowledgeStageAnalyzingImages = "analyzing_images"
+	knowledgeStageChunking        = "chunking"
+	knowledgeStageIndexing        = "indexing"
+	knowledgeStageCompleted       = "completed"
+	knowledgeStageFailed          = "failed"
+)
+
 // KnowledgeDocumentService imports source files and persists chunker output.
 type KnowledgeDocumentService struct{}
 
-// Import keeps the original source in private object storage before parsing it.
-// A parsing failure becomes a visible processing_failed document: administrators
-// can inspect its cause and reprocess the preserved source rather than asking a
-// user to upload a potentially unavailable original file again.
+// Import persists the source and returns immediately. Parsing and indexing run
+// in the background so a large document never holds the browser upload dialog
+// open. The durable document status is exposed through the document SSE stream.
 func (s *KnowledgeDocumentService) Import(ctx context.Context, tenantID, organizationID, userID uint, file *multipart.FileHeader) (*model.KnowledgeDocument, error) {
 	if tenantID == 0 || organizationID == 0 || userID == 0 {
 		return nil, fmt.Errorf("缺少导入知识库所需的租户、组织或用户上下文")
@@ -117,15 +128,17 @@ func (s *KnowledgeDocumentService) Import(ctx context.Context, tenantID, organiz
 	}
 
 	document := model.KnowledgeDocument{
-		TenantID:       tenantID,
-		OrganizationID: organizationID,
-		CreatedBy:      userID,
-		Name:           strings.TrimSuffix(originalName, filepath.Ext(originalName)),
-		OriginalName:   originalName,
-		ContentType:    contentType,
-		ObjectKey:      objectKey,
-		SHA256:         digest,
-		Status:         "processing",
+		TenantID:           tenantID,
+		OrganizationID:     organizationID,
+		CreatedBy:          userID,
+		Name:               strings.TrimSuffix(originalName, filepath.Ext(originalName)),
+		OriginalName:       originalName,
+		ContentType:        contentType,
+		ObjectKey:          objectKey,
+		SHA256:             digest,
+		Status:             "processing",
+		ProcessingStage:    knowledgeStageQueued,
+		ProcessingProgress: 2,
 	}
 	if err := db.WithContext(ctx).Create(&document).Error; err != nil {
 		rollbackKnowledgeObjects(ctx, objectStore, &document, []string{objectKey}, "create_document")
@@ -134,30 +147,139 @@ func (s *KnowledgeDocumentService) Import(ctx context.Context, tenantID, organiz
 		}
 		return nil, err
 	}
+	s.startProcessing(document.ID, tenantID, userID)
+	return &document, nil
+}
 
-	parsed, err := documentparser.New().Parse(ctx, originalName, bytes.NewReader(data))
+// Reprocess replaces all derived content from the original private object. It
+// is intentionally distinct from reindex: use it after a parser upgrade or
+// when the source extraction is incomplete, even if the old document reached
+// the ready state.
+func (s *KnowledgeDocumentService) Reprocess(ctx context.Context, tenantID, documentID, userID uint) (*model.KnowledgeDocument, error) {
+	db := global.GVA_DB
+	var document model.KnowledgeDocument
+	if err := db.WithContext(ctx).Where("id = ? AND tenant_id = ?", documentID, tenantID).First(&document).Error; err != nil {
+		return nil, err
+	}
+	if err := ensureKnowledgeMember(ctx, tenantID, document.OrganizationID, userID); err != nil {
+		return nil, err
+	}
+	if document.Status != "processing_failed" && document.Status != "ready" && document.Status != "index_failed" {
+		return nil, fmt.Errorf("仅处理失败、可检索或索引失败的文档可以重新解析")
+	}
+
+	var chunks []model.KnowledgeChunk
+	if err := db.WithContext(ctx).Where("document_id = ?", document.ID).Find(&chunks).Error; err != nil {
+		return nil, fmt.Errorf("读取待替换的知识库切片失败: %w", err)
+	}
+	if global.GVA_VECTOR_STORE != nil && len(chunks) > 0 {
+		keys := make([]vectorstore.StoreRequest, 0, len(chunks))
+		for _, chunk := range chunks {
+			keys = append(keys, vectorstore.StoreRequest{Collection: knowledgeChunkCollection, ID: chunk.ID})
+		}
+		if err := global.GVA_VECTOR_STORE.Delete(ctx, keys); err != nil {
+			return nil, fmt.Errorf("清理旧知识库向量索引失败: %w", err)
+		}
+	}
+
+	// Image object keys are deterministic for a source document. Keep the old
+	// objects until the new parse has durably replaced their metadata: matching
+	// images are overwritten during processing, and this avoids making a ready
+	// document lose its image source if a later reset step fails.
+	if err := db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("document_id = ?", document.ID).Delete(&model.KnowledgeImage{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("document_id = ?", document.ID).Delete(&model.KnowledgeChunk{}).Error; err != nil {
+			return err
+		}
+		return tx.Model(&document).Updates(map[string]any{
+			"chunk_count":         0,
+			"status":              "processing",
+			"processing_stage":    knowledgeStageQueued,
+			"processing_progress": 2,
+			"failure_reason":      "",
+			"indexed_at":          nil,
+		}).Error
+	}); err != nil {
+		return nil, fmt.Errorf("重置失败的文档处理状态失败: %w", err)
+	}
+	document.ChunkCount = 0
+	document.Status = "processing"
+	document.ProcessingStage = knowledgeStageQueued
+	document.ProcessingProgress = 2
+	document.FailureReason = ""
+	document.IndexedAt = nil
+	s.startProcessing(document.ID, tenantID, userID)
+	return &document, nil
+}
+
+func (s *KnowledgeDocumentService) startProcessing(documentID, tenantID, userID uint) {
+	go func() {
+		if err := s.processStoredDocument(context.Background(), documentID, tenantID, userID); err != nil && global.GVA_LOG != nil {
+			global.GVA_LOG.Error("knowledge document background processing stopped", zap.Uint("document_id", documentID), zap.Error(err))
+		}
+	}()
+}
+
+func (s *KnowledgeDocumentService) processStoredDocument(ctx context.Context, documentID, tenantID, userID uint) error {
+	db := global.GVA_DB
+	var document model.KnowledgeDocument
+	if err := db.WithContext(ctx).Where("id = ? AND tenant_id = ?", documentID, tenantID).First(&document).Error; err != nil {
+		return err
+	}
+	objectStore, err := knowledgeObjectStorage()
 	if err != nil {
-		return markKnowledgeDocumentProcessingFailed(ctx, &document, err)
+		return processKnowledgeDocumentFailure(ctx, &document, err)
 	}
-	// A PDF without a text layer is processed through the same visual model
-	// configured on the model-settings page. The parser supplies embedded JPEG
-	// page images; no separate OCR binary, model or deployment setting is used.
-	scannedPDF := strings.TrimSpace(parsed.Text) == "" && strings.EqualFold(filepath.Ext(originalName), ".pdf")
+	setKnowledgeDocumentProgress(ctx, &document, knowledgeStageParsing, 10)
+	source, err := objectStore.Download(ctx, document.ObjectKey)
+	if err != nil {
+		return processKnowledgeDocumentFailure(ctx, &document, fmt.Errorf("读取已上传的原文件失败: %w", err))
+	}
+	data, readErr := io.ReadAll(io.LimitReader(source, maxKnowledgeDocumentSize+1))
+	closeErr := source.Close()
+	if readErr != nil {
+		return processKnowledgeDocumentFailure(ctx, &document, fmt.Errorf("读取已上传的原文件失败: %w", readErr))
+	}
+	if closeErr != nil {
+		return processKnowledgeDocumentFailure(ctx, &document, fmt.Errorf("关闭已上传的原文件失败: %w", closeErr))
+	}
+	if len(data) > maxKnowledgeDocumentSize {
+		return processKnowledgeDocumentFailure(ctx, &document, fmt.Errorf("文档不能超过 200 MB"))
+	}
+	parsed, err := documentparser.New().Parse(ctx, document.OriginalName, bytes.NewReader(data))
+	if err != nil {
+		return processKnowledgeDocumentFailure(ctx, &document, err)
+	}
+	// A PDF without a text layer is processed through the configured visual
+	// model. The parser supplies page images; no independent OCR runtime exists.
+	scannedPDF := strings.TrimSpace(parsed.Text) == "" && strings.EqualFold(filepath.Ext(document.OriginalName), ".pdf")
 	if strings.TrimSpace(parsed.Text) == "" && !scannedPDF {
-		return markKnowledgeDocumentProcessingFailed(ctx, &document, fmt.Errorf("未从文档中提取到可切片的文本；OCR 未识别出正文"))
+		return processKnowledgeDocumentFailure(ctx, &document, fmt.Errorf("未从文档中提取到可切片的文本；OCR 未识别出正文"))
 	}
-
-	images, imageChunks, uploadedImageKeys, err := prepareKnowledgeImages(ctx, objectStore, &document, tenantID, userID, parsed.Images, scannedPDF)
+	imageProgress := func(done, total int) {
+		if total <= 0 {
+			return
+		}
+		progress := 25 + done*40/total
+		setKnowledgeDocumentProgress(ctx, &document, knowledgeStageAnalyzingImages, progress)
+	}
+	if len(parsed.Images) > 0 {
+		setKnowledgeDocumentProgress(ctx, &document, knowledgeStageAnalyzingImages, 25)
+	}
+	images, imageChunks, uploadedImageKeys, err := prepareKnowledgeImages(ctx, objectStore, &document, tenantID, userID, parsed.Images, scannedPDF, imageProgress)
 	if err != nil {
 		rollbackKnowledgeObjects(ctx, objectStore, &document, uploadedImageKeys, "process_embedded_images")
-		return markKnowledgeDocumentProcessingFailed(ctx, &document, err)
+		return processKnowledgeDocumentFailure(ctx, &document, err)
 	}
 
+	setKnowledgeDocumentProgress(ctx, &document, knowledgeStageChunking, 70)
 	var chunks []model.KnowledgeChunk
 	if scannedPDF {
 		if len(imageChunks) == 0 {
 			rollbackKnowledgeObjects(ctx, objectStore, &document, uploadedImageKeys, "scanned_pdf_no_page_image")
-			return markKnowledgeDocumentProcessingFailed(ctx, &document, fmt.Errorf("扫描版 PDF 未包含可提取的页面图片，暂无法使用已配置的 OCR 图片语义模型识别"))
+			return processKnowledgeDocumentFailure(ctx, &document, fmt.Errorf("扫描版 PDF 未包含可提取的页面图片，暂无法使用已配置的 OCR 图片语义模型识别"))
 		}
 		for index := range imageChunks {
 			imageChunks[index].ChunkIndex = index
@@ -167,13 +289,13 @@ func (s *KnowledgeDocumentService) Import(ctx context.Context, tenantID, organiz
 		blocks, splitErr := chunker.NewLocalSplitter().Split(parsed.Text)
 		if splitErr != nil {
 			rollbackKnowledgeObjects(ctx, objectStore, &document, uploadedImageKeys, "split_document")
-			return markKnowledgeDocumentProcessingFailed(ctx, &document, fmt.Errorf("知识库切片失败: %w", splitErr))
+			return processKnowledgeDocumentFailure(ctx, &document, fmt.Errorf("知识库切片失败: %w", splitErr))
 		}
 		if len(blocks) == 0 {
 			rollbackKnowledgeObjects(ctx, objectStore, &document, uploadedImageKeys, "empty_document_chunks")
-			return markKnowledgeDocumentProcessingFailed(ctx, &document, fmt.Errorf("文档未生成知识库切片"))
+			return processKnowledgeDocumentFailure(ctx, &document, fmt.Errorf("文档未生成知识库切片"))
 		}
-		chunks = knowledgeChunks(&document, tenantID, organizationID, blocks)
+		chunks = knowledgeChunks(&document, tenantID, document.OrganizationID, blocks)
 		for index := range imageChunks {
 			imageChunks[index].ChunkIndex = len(chunks) + index
 		}
@@ -188,25 +310,58 @@ func (s *KnowledgeDocumentService) Import(ctx context.Context, tenantID, organiz
 				return err
 			}
 		}
-		return tx.Model(&document).Updates(map[string]any{"chunk_count": len(chunks), "status": "indexing", "failure_reason": ""}).Error
+		return tx.Model(&document).Updates(map[string]any{
+			"chunk_count":         len(chunks),
+			"status":              "indexing",
+			"processing_stage":    knowledgeStageIndexing,
+			"processing_progress": 82,
+			"failure_reason":      "",
+		}).Error
 	}); err != nil {
 		rollbackKnowledgeObjects(ctx, objectStore, &document, uploadedImageKeys, "persist_chunks")
-		return markKnowledgeDocumentProcessingFailed(ctx, &document, fmt.Errorf("保存知识库切片失败: %w", err))
+		return processKnowledgeDocumentFailure(ctx, &document, fmt.Errorf("保存知识库切片失败: %w", err))
 	}
 	document.ChunkCount = len(chunks)
 	document.Status = "indexing"
+	document.ProcessingStage = knowledgeStageIndexing
+	document.ProcessingProgress = 82
 	document.FailureReason = ""
+	setKnowledgeDocumentProgress(ctx, &document, knowledgeStageIndexing, 85)
 
-	// Source data and chunks are durable now. An unavailable embedding backend is
-	// retryable, so IndexDocument writes index_failed and Import still succeeds.
+	// Source data and chunks are durable now. IndexDocument records index_failed
+	// itself when an embedding backend is unavailable, leaving a retryable state.
 	indexed, indexErr := ServiceGroupApp.KnowledgeSearchService.IndexDocument(ctx, tenantID, document.ID, userID)
-	if indexErr != nil && indexed != nil {
-		return indexed, nil
-	}
 	if indexErr != nil {
-		return &document, indexErr
+		if indexed != nil && indexed.Status == "index_failed" {
+			return nil
+		}
+		return processKnowledgeDocumentFailure(ctx, &document, fmt.Errorf("建立知识库索引失败: %w", indexErr))
 	}
-	return indexed, nil
+	return nil
+}
+
+func processKnowledgeDocumentFailure(ctx context.Context, document *model.KnowledgeDocument, cause error) error {
+	_, markErr := markKnowledgeDocumentProcessingFailed(ctx, document, cause)
+	if markErr != nil {
+		return markErr
+	}
+	return cause
+}
+
+func setKnowledgeDocumentProgress(ctx context.Context, document *model.KnowledgeDocument, stage string, progress int) {
+	if document == nil || global.GVA_DB == nil {
+		return
+	}
+	if progress < 0 {
+		progress = 0
+	} else if progress > 100 {
+		progress = 100
+	}
+	document.ProcessingStage = stage
+	document.ProcessingProgress = progress
+	if err := global.GVA_DB.WithContext(ctx).Model(document).Updates(map[string]any{"processing_stage": stage, "processing_progress": progress}).Error; err != nil && global.GVA_LOG != nil {
+		global.GVA_LOG.Warn("update knowledge document processing progress failed", zap.Uint("document_id", document.ID), zap.Error(err))
+	}
 }
 
 func knowledgeChunks(document *model.KnowledgeDocument, tenantID, organizationID uint, blocks []chunker.MarkdownBlock) []model.KnowledgeChunk {
@@ -218,12 +373,21 @@ func knowledgeChunks(document *model.KnowledgeDocument, tenantID, organizationID
 	return chunks
 }
 
-func prepareKnowledgeImages(ctx context.Context, objectStore storage.ObjectStorage, document *model.KnowledgeDocument, tenantID, userID uint, parsedImages []documentparser.Image, forceVisualOCR bool) ([]model.KnowledgeImage, []model.KnowledgeChunk, []string, error) {
-	semanticLLM, err := systemService.ServiceGroupApp.SysModelSettingService.ResolveOCRSemanticLLM(ctx, tenantID, userID)
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("读取 OCR 图片语义总结模型配置失败: %w", err)
+func prepareKnowledgeImages(ctx context.Context, objectStore storage.ObjectStorage, document *model.KnowledgeDocument, tenantID, userID uint, parsedImages []documentparser.Image, forceVisualOCR bool, onProgress func(done, total int)) ([]model.KnowledgeImage, []model.KnowledgeChunk, []string, error) {
+	var analyzer *llmutil.ImageSemanticAnalyzer
+	if len(parsedImages) > 0 {
+		semanticLLM, err := systemService.ServiceGroupApp.SysModelSettingService.ResolveOCRSemanticLLM(ctx, tenantID, userID)
+		if err != nil {
+			if forceVisualOCR {
+				return nil, nil, nil, fmt.Errorf("读取 OCR 图片语义总结模型配置失败: %w", err)
+			}
+			if global.GVA_LOG != nil {
+				global.GVA_LOG.Warn("读取图片语义模型配置失败，跳过非扫描文档的图片语义增强", zap.Uint("document_id", document.ID), zap.Error(err))
+			}
+		} else {
+			analyzer = llmutil.NewImageSemanticAnalyzer(semanticLLM)
+		}
 	}
-	analyzer := llmutil.NewImageSemanticAnalyzer(semanticLLM)
 	if forceVisualOCR && analyzer == nil {
 		return nil, nil, nil, fmt.Errorf("扫描版 PDF 需要在模型配置中设置主模型或 OCR 图片语义总结模型")
 	}
@@ -231,12 +395,15 @@ func prepareKnowledgeImages(ctx context.Context, objectStore storage.ObjectStora
 	images := make([]model.KnowledgeImage, 0, len(parsedImages))
 	imageChunks := make([]model.KnowledgeChunk, 0, len(parsedImages))
 	uploadedKeys := make([]string, 0, len(parsedImages))
-	for _, image := range parsedImages {
+	for imageIndex, image := range parsedImages {
 		imageDigest, hashErr := utils.FileSHA256(bytes.NewReader(image.Data))
 		if hashErr != nil {
 			return nil, nil, uploadedKeys, fmt.Errorf("计算图片 %s SHA-256 失败: %w", image.Name, hashErr)
 		}
 		if _, duplicate := seenImages[imageDigest]; duplicate {
+			if onProgress != nil {
+				onProgress(imageIndex+1, len(parsedImages))
+			}
 			continue
 		}
 		seenImages[imageDigest] = struct{}{}
@@ -258,32 +425,42 @@ func prepareKnowledgeImages(ctx context.Context, objectStore storage.ObjectStora
 		if forceVisualOCR {
 			imageKind = "scanned_page"
 		}
-		extractedText := ""
-		semanticSummary := ""
+		imageKnowledge := ""
 		if !forceVisualOCR && global.GVA_OCR != nil {
 			detector := global.GVA_OCR
 			layout, detectErr := detector.DetectBytes(ctx, image.Data)
 			if detectErr != nil {
-				return nil, nil, uploadedKeys, fmt.Errorf("图片 %s 本地 ONNX 版面识别失败: %w", imageName, detectErr)
-			}
-			parseableDocument = layout.HasText || layout.HasTable
-			if layout.HasTable {
-				imageKind = "table"
-			} else if parseableDocument {
-				imageKind = "document"
+				if global.GVA_LOG != nil {
+					global.GVA_LOG.Warn("本地图片版面识别失败，跳过该图片的语义增强", zap.Uint("document_id", document.ID), zap.String("image_name", imageName), zap.Error(detectErr))
+				}
+			} else {
+				parseableDocument = layout.HasText || layout.HasTable
+				if layout.HasTable {
+					imageKind = "table"
+				} else if parseableDocument {
+					imageKind = "document"
+				}
 			}
 		}
 		if analyzer != nil && parseableDocument {
-			semantic, analyzeErr := analyzer.AnalyzeImage(ctx, image.MIME, image.Data)
+			knowledge, analyzeErr := analyzer.AnalyzeImage(ctx, image.MIME, image.Data)
 			if analyzeErr != nil {
-				return nil, nil, uploadedKeys, fmt.Errorf("图片 %s 视觉解析失败: %w", imageName, analyzeErr)
+				if global.GVA_LOG != nil {
+					global.GVA_LOG.Warn("图片视觉解析失败，跳过该图片", zap.Uint("document_id", document.ID), zap.String("image_name", imageName), zap.Error(analyzeErr))
+				}
+			} else {
+				imageKnowledge = knowledge
 			}
-			extractedText = semantic.Text
-			semanticSummary = semantic.Semantic
 		}
-		images = append(images, model.KnowledgeImage{DocumentID: document.ID, Name: imageName, MIME: image.MIME, ObjectKey: imageKey, SHA256: imageDigest, Kind: imageKind, ExtractedText: extractedText, Semantic: semanticSummary})
-		imageContent := strings.TrimSpace(strings.Join([]string{extractedText, semanticSummary}, "\n"))
+		// One model response may be a literal transcription, a chart summary, or
+		// both. Keep it in Semantic as the legacy free-form knowledge field rather
+		// than incorrectly labelling a chart summary as extracted source text.
+		images = append(images, model.KnowledgeImage{DocumentID: document.ID, Name: imageName, MIME: image.MIME, ObjectKey: imageKey, SHA256: imageDigest, Kind: imageKind, Semantic: imageKnowledge})
+		imageContent := imageKnowledge
 		if imageContent == "" {
+			if onProgress != nil {
+				onProgress(imageIndex+1, len(parsedImages))
+			}
 			continue
 		}
 		sectionType := "image_semantic"
@@ -295,6 +472,9 @@ func prepareKnowledgeImages(ctx context.Context, objectStore storage.ObjectStora
 			Title: "图片语义：" + imageName, ParentTitle: document.Name, Content: imageContent,
 			Metadata: fmt.Sprintf(`{"section_type":%q,"image_name":%q,"image_sha256":%q}`, sectionType, imageName, imageDigest),
 		})
+		if onProgress != nil {
+			onProgress(imageIndex+1, len(parsedImages))
+		}
 	}
 	return images, imageChunks, uploadedKeys, nil
 }

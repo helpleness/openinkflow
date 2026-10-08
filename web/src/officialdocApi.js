@@ -29,6 +29,17 @@ export function reindexKnowledgeDocument(tenantID, documentID) {
   return apiJson(`${API_PREFIX}/officialdoc/knowledge-documents/${documentID}/reindex`, {}, 'POST', tenantOptions(tenantID))
 }
 
+export function reprocessKnowledgeDocument(tenantID, documentID) {
+  return apiJson(`${API_PREFIX}/officialdoc/knowledge-documents/${documentID}/reprocess`, {}, 'POST', tenantOptions(tenantID))
+}
+
+export function streamKnowledgeDocument(tenantID, documentID, handlers, options = {}) {
+  return streamGet(`${API_PREFIX}/officialdoc/knowledge-documents/${documentID}/events`, handlers, {
+    ...options,
+    headers: { ...tenantOptions(tenantID).headers, ...(options.headers || {}) },
+  })
+}
+
 export function deleteKnowledgeDocument(tenantID, documentID) {
   return apiDelete(`${API_PREFIX}/officialdoc/knowledge-documents/${documentID}`, {}, tenantOptions(tenantID))
 }

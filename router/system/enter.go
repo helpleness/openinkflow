@@ -16,6 +16,7 @@ type RouterGroup struct {
 	SysModelSettingRouter
 	SysMCPServerRouter
 	SysInferenceRouter
+	AIChatRouter
 }
 
 // RouterGroupApp is the system router module exported to initialize/router.go.

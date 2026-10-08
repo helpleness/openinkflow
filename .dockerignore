@@ -1,5 +1,10 @@
 .git
 .gitignore
+config.yaml
+config.docker.yaml
+.env
+docs/
+*.log
 .idea/
 .run/
 .codex/

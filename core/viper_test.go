@@ -36,6 +36,26 @@ func TestInitializeClientViperUsesLocalEngineDefaultsWithoutConfigFile(t *testin
 	}
 }
 
+func TestInitializeViperUsesDockerSecretEnvironment(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "config.yaml"), []byte("auth:\n  jwt-secret: example-only\npgsql:\n  password: example-only\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(dir)
+	t.Setenv("INKFLOW_AUTH_JWT_SECRET", "runtime-jwt-secret")
+	t.Setenv("INKFLOW_PGSQL_PASSWORD", "runtime-db-password")
+	oldConfig := global.GVA_CONFIG
+	defer func() { global.GVA_CONFIG = oldConfig }()
+
+	InitializeViper()
+	if got := global.GVA_CONFIG.Auth.JWTSecret; got != "runtime-jwt-secret" {
+		t.Fatalf("JWT secret did not use the deployment environment value")
+	}
+	if got := global.GVA_CONFIG.Pgsql.Password; got != "runtime-db-password" {
+		t.Fatalf("PostgreSQL password did not use the deployment environment value")
+	}
+}
+
 func TestInitializeClientViperReadsUserConfig(t *testing.T) {
 	configDir := t.TempDir()
 	configPath := filepath.Join(configDir, "client.yaml")

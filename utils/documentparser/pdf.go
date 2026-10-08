@@ -4,12 +4,14 @@ import (
 	"bytes"
 	"compress/flate"
 	"compress/zlib"
+	"context"
 	"encoding/ascii85"
 	"encoding/hex"
 	"fmt"
 	"io"
 	"regexp"
 	"strings"
+	"unicode"
 	"unicode/utf16"
 )
 
@@ -17,6 +19,7 @@ var pdfJPEGImage = regexp.MustCompile(`(?s)/Subtype\s*/Image.*?/Filter\s*/DCTDec
 var pdfObject = regexp.MustCompile(`(?s)(\d+)\s+\d+\s+obj\b(.*?)\bendobj\b`)
 var pdfFontReference = regexp.MustCompile(`/([A-Za-z0-9_.+-]+)\s+(\d+)\s+\d+\s+R\b`)
 var pdfUnicodeCIDFont = regexp.MustCompile(`/Encoding\s*/Uni(?:GB|CNS|JIS|KS)-UCS2-[HV]\b`)
+var pdfPageObject = regexp.MustCompile(`/Type\s*/Page\b`)
 
 type pdfTextEncoding uint8
 
@@ -30,12 +33,40 @@ type pdfOperand struct {
 	text []byte
 }
 
-// parsePDF extracts literal text from normal and Flate-compressed PDF content streams.
-// Encrypted, scanned and custom-font PDFs have no usable text layer; their page images are returned when embedded as JPEG.
-func parsePDF(data []byte) (Result, error) {
+// parsePDF uses Poppler when it is available. PDF text extraction requires
+// interpreting page resources, CMaps and object streams, which cannot be done
+// reliably by scanning BT/ET tokens. The small built-in reader below remains as
+// a compatibility fallback for lightweight native installs and test fixtures.
+//
+// Encrypted or scanned documents may still have no text layer; their embedded
+// JPEGs are returned for the visual-analysis path.
+func parsePDF(ctx context.Context, data []byte) (Result, error) {
 	if !bytes.HasPrefix(data, []byte("%PDF-")) {
 		return Result{}, fmt.Errorf("invalid PDF header")
 	}
+	text, popplerAvailable, err := extractPDFText(ctx, data)
+	if err != nil {
+		return Result{}, err
+	}
+	pages := pdfPageCount(data)
+	if !popplerAvailable {
+		text = parsePDFTextFallback(data)
+	}
+	if pdfTextLooksTruncated(text, pages) {
+		characters := pdfTextRuneCount(text)
+		if popplerAvailable {
+			return Result{}, fmt.Errorf("PDF 共 %d 页，但 Poppler 只提取到 %d 个可见字符；文本层不完整，已拒绝建立不完整索引", pages, characters)
+		}
+		return Result{}, fmt.Errorf("PDF 共 %d 页，但只提取到 %d 个可见字符；服务未安装 Poppler pdftotext，已拒绝建立不完整索引", pages, characters)
+	}
+	text = NormalizeMarkdownForChunker(text)
+	if text != "" {
+		text = "# PDF 文档\n\n" + text
+	}
+	return Result{Text: text, Images: pdfImages(data)}, nil
+}
+
+func parsePDFTextFallback(data []byte) string {
 	streams := pdfStreams(data)
 	fontEncodings := pdfFontEncodings(data)
 	var builder strings.Builder
@@ -43,11 +74,28 @@ func parsePDF(data []byte) (Result, error) {
 		builder.WriteString(pdfText(stream, fontEncodings))
 		builder.WriteByte('\n')
 	}
-	text := NormalizeMarkdownForChunker(builder.String())
-	if text != "" {
-		text = "# PDF 文档\n\n" + text
+	return builder.String()
+}
+
+func pdfPageCount(data []byte) int { return len(pdfPageObject.FindAllIndex(data, -1)) }
+
+// A multi-page document containing only a few dozen characters per page is
+// almost always a CMap/object-stream extraction failure. Do not silently turn
+// it into a handful of apparently-successful knowledge chunks.
+func pdfTextLooksTruncated(text string, pages int) bool {
+	const minimumPagesForGuard = 8
+	const minimumRunesPerPage = 80
+	return pages >= minimumPagesForGuard && pdfTextRuneCount(text) < pages*minimumRunesPerPage
+}
+
+func pdfTextRuneCount(text string) int {
+	count := 0
+	for _, character := range text {
+		if !unicode.IsSpace(character) {
+			count++
+		}
 	}
-	return Result{Text: text, Images: pdfImages(data)}, nil
+	return count
 }
 
 // pdfFontEncodings resolves the resource aliases used by page content streams.  A

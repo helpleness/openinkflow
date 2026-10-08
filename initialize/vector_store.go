@@ -70,9 +70,18 @@ func initializePostgresVectorStore(db *gorm.DB) (vectorstore.Store, error) {
 	if efConstruction <= 0 {
 		efConstruction = 256
 	}
-	statement := fmt.Sprintf("CREATE INDEX IF NOT EXISTS idx_knowledge_chunks_embedding_hnsw ON knowledge_chunks USING hnsw ((embedding::vector(%d)) vector_cosine_ops) WITH (m = %d, ef_construction = %d)", dimension, m, efConstruction)
-	if err := db.Exec(statement).Error; err != nil {
-		return nil, fmt.Errorf("create knowledge chunk HNSW index: %w", err)
+	indexes := []struct {
+		name  string
+		table string
+	}{
+		{name: "idx_knowledge_chunks_embedding_hnsw", table: "knowledge_chunks"},
+		{name: "idx_ai_chat_turn_memories_embedding_hnsw", table: "sys_ai_chat_turn_memories"},
+	}
+	for _, index := range indexes {
+		statement := fmt.Sprintf("CREATE INDEX IF NOT EXISTS %s ON %s USING hnsw ((embedding::vector(%d)) vector_cosine_ops) WITH (m = %d, ef_construction = %d)", index.name, index.table, dimension, m, efConstruction)
+		if err := db.Exec(statement).Error; err != nil {
+			return nil, fmt.Errorf("create %s HNSW index: %w", index.table, err)
+		}
 	}
 	return &vectorstore.PostgresStore{}, nil
 }

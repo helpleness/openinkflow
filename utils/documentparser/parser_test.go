@@ -26,6 +26,9 @@ func TestParserFormatsRemainUTF8AndMarkdownCompatible(t *testing.T) {
 	}
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
+			if testCase.name == "pdf" {
+				usePDFTextFallback(t)
+			}
 			if os.Getenv("INKFLOW_KEEP_PARSER_FIXTURES") == "1" {
 				directory := filepath.Join("testdata", "generated")
 				if err := os.MkdirAll(directory, 0o755); err != nil {
@@ -57,6 +60,7 @@ func TestParserFormatsRemainUTF8AndMarkdownCompatible(t *testing.T) {
 }
 
 func TestPDFParserExtractsScannedJPEGPageWithoutTextLayer(t *testing.T) {
+	usePDFTextFallback(t)
 	result, err := New().Parse(context.Background(), "scanned.pdf", bytes.NewReader(scannedPDFJPEGFixture()))
 	if err != nil {
 		t.Fatal(err)
@@ -69,6 +73,54 @@ func TestPDFParserExtractsScannedJPEGPageWithoutTextLayer(t *testing.T) {
 	}
 	if result.Images[0].MIME != "image/jpeg" || result.Images[0].Name != "page-image-001.jpg" {
 		t.Fatalf("unexpected scanned page image: %#v", result.Images[0])
+	}
+}
+
+func usePDFTextFallback(t *testing.T) {
+	t.Helper()
+	original := extractPDFText
+	extractPDFText = func(context.Context, []byte) (string, bool, error) { return "", false, nil }
+	t.Cleanup(func() { extractPDFText = original })
+}
+
+func TestPDFParserPrefersPopplerTextForComplexDocuments(t *testing.T) {
+	original := extractPDFText
+	extractPDFText = func(context.Context, []byte) (string, bool, error) {
+		return "第一章 发展环境\n\n这是一段由 Poppler 从复杂中文 CMap PDF 中提取的正文。", true, nil
+	}
+	t.Cleanup(func() { extractPDFText = original })
+
+	result, err := New().Parse(context.Background(), "complex.pdf", bytes.NewReader(pdfFixture()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(result.Text, "由 Poppler") {
+		t.Fatalf("text = %q, want Poppler extraction", result.Text)
+	}
+	if strings.Contains(result.Text, "PDF 中文内容") {
+		t.Fatalf("text unexpectedly used the fallback reader: %q", result.Text)
+	}
+}
+
+func TestPDFParserRejectsSparseLargeDocumentWithoutPoppler(t *testing.T) {
+	original := extractPDFText
+	extractPDFText = func(context.Context, []byte) (string, bool, error) { return "", false, nil }
+	t.Cleanup(func() { extractPDFText = original })
+
+	_, err := New().Parse(context.Background(), "ninety-pages.pdf", bytes.NewReader(sparseMultiPagePDFFixture(90)))
+	if err == nil || !strings.Contains(err.Error(), "未安装 Poppler pdftotext") {
+		t.Fatalf("error = %v, want sparse multi-page PDF rejection", err)
+	}
+}
+
+func TestPDFParserRejectsSparseLargeDocumentFromPoppler(t *testing.T) {
+	original := extractPDFText
+	extractPDFText = func(context.Context, []byte) (string, bool, error) { return "只有一个页眉", true, nil }
+	t.Cleanup(func() { extractPDFText = original })
+
+	_, err := New().Parse(context.Background(), "ninety-pages.pdf", bytes.NewReader(sparseMultiPagePDFFixture(90)))
+	if err == nil || !strings.Contains(err.Error(), "文本层不完整") {
+		t.Fatalf("error = %v, want sparse Poppler result rejection", err)
 	}
 }
 
@@ -149,6 +201,21 @@ func pdfFixture() []byte {
 
 func scannedPDFJPEGFixture() []byte {
 	return []byte("%PDF-1.4\n1 0 obj\n<< /Type /XObject /Subtype /Image /Width 1 /Height 1 /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length 4 >>\nstream\n\xff\xd8\xff\xd9\nendstream\nendobj\n%%EOF\n")
+}
+
+func sparseMultiPagePDFFixture(pages int) []byte {
+	var builder strings.Builder
+	builder.WriteString("%PDF-1.4\n")
+	for index := 0; index < pages; index++ {
+		fmt.Fprintf(&builder, "%d 0 obj\n<< /Type /Page /Contents %d 0 R >>\nendobj\n", index*2+1, index*2+2)
+		if index == 0 {
+			builder.WriteString("2 0 obj\n<< /Length 20 >>\nstream\nBT (short text) Tj ET\nendstream\nendobj\n")
+			continue
+		}
+		fmt.Fprintf(&builder, "%d 0 obj\n<< /Length 0 >>\nstream\n\nendstream\nendobj\n", index*2+2)
+	}
+	builder.WriteString("%%EOF\n")
+	return []byte(builder.String())
 }
 
 func pdfHexString(value string) string {
@@ -315,6 +382,7 @@ func TestParserRejectsLegacyOfficeFormats(t *testing.T) {
 }
 
 func TestPDFParserRemovesNullBytesBeforeStorage(t *testing.T) {
+	usePDFTextFallback(t)
 	// PDF 字面量中的 \\000 会被解析为 NUL。该字节本身是合法 UTF-8，
 	// 但 PostgreSQL 不允许它出现在 text/varchar 字段中。
 	pdf := []byte("%PDF-1.4\n1 0 obj\n<< /Length 20 >>\nstream\nBT (A\\000B) Tj ET\nendstream\nendobj\n%%EOF\n")
@@ -331,6 +399,7 @@ func TestPDFParserRemovesNullBytesBeforeStorage(t *testing.T) {
 }
 
 func TestPDFParserUsesTheActiveFontEncodingAndIgnoresNonTextStreamData(t *testing.T) {
+	usePDFTextFallback(t)
 	pdf := fontAwarePDFFixture()
 	if got := pdfFontEncodings(pdf)["F2"]; got != pdfTextEncodingUTF16BE {
 		t.Fatalf("F2 encoding = %d, want UTF-16BE", got)

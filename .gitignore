@@ -64,6 +64,8 @@ profiling
 # env file
 .env
 build_priv.sh
+/docs/
+*.log
 
 # Local deployment configuration and credentials
 config.yaml

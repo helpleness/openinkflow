@@ -7,6 +7,7 @@ import (
 
 	"InkFlow/global"
 	officialdoc "InkFlow/model/officialdoc"
+	system "InkFlow/model/system"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
@@ -75,6 +76,11 @@ func RegisterTables(db *gorm.DB) {
 		panic("register tables: database is nil")
 	}
 	initializeSystemModule(db)
+	if err := db.AutoMigrate(
+		&system.SysAIChatConversation{}, &system.SysAIChatMessage{}, &system.SysAIChatTurnMemory{}, &system.SysAISkill{},
+	); err != nil {
+		panic(fmt.Errorf("migrate AI chat schema: %w", err))
+	}
 	if err := db.AutoMigrate(
 		&officialdoc.KnowledgeDocument{}, &officialdoc.KnowledgeChunk{}, &officialdoc.KnowledgeImage{},
 		&officialdoc.DocumentTemplate{}, &officialdoc.WritingTask{}, &officialdoc.DocumentVersion{}, &officialdoc.DocumentReviewComment{}, &officialdoc.WritingEvidence{},

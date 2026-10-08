@@ -91,7 +91,10 @@ func closeUSearch() error {
 }
 
 func usearchCollections() []vectorstore.Collection {
-	return []vectorstore.Collection{"officialdoc_knowledge_chunks"}
+	return []vectorstore.Collection{
+		"officialdoc_knowledge_chunks",
+		"sys_ai_chat_turn_memories",
+	}
 }
 
 func usearchIndexPath(directory string, collection vectorstore.Collection) string {

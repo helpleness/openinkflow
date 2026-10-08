@@ -7,7 +7,9 @@ import KnowledgeDocumentPage from './components/officialdoc/KnowledgeDocumentPag
 import KnowledgeSearchPage from './components/officialdoc/KnowledgeSearchPage.vue'
 import ApplicationReviewPage from './components/system/ApplicationReviewPage.vue'
 import AccountSecurityPage from './components/system/AccountSecurityPage.vue'
+import AIChatPage from './components/system/AIChatPage.vue'
 import MembershipPage from './components/system/MembershipPage.vue'
+import MCPAndSkillsPage from './components/system/MCPAndSkillsPage.vue'
 import MenuConfigPage from './components/system/MenuConfigPage.vue'
 import ModelConfigPage from './components/system/ModelConfigPage.vue'
 import OrganizationPage from './components/system/OrganizationPage.vue'
@@ -72,6 +74,7 @@ import {
   LayoutDashboard,
   LockKeyhole,
   LogOut,
+  MessageCircle,
   PenLine,
   Search,
   Settings2,
@@ -79,6 +82,7 @@ import {
   Sparkles,
   UserRound,
   Users,
+  Wrench,
 } from 'lucide-vue-next'
 
 const activeView = ref('workspace')
@@ -122,7 +126,7 @@ let toastTimer
 
 // 菜单定义属于前端。所有者首次登录或菜单升级后，由前端将这些键同步
 // 到 owner 角色；后端只保存键值并通过 Casbin 自动维护 owner 的 API 权限。
-const OWNER_MENU_KEYS = ['workspace', 'personal_center', 'model_config', 'permission_management', 'applications', 'application_reviews', 'workspace_application_reviews', 'workspace_settings', 'organizations', 'roles', 'members', 'audit', 'menu_configs', 'knowledge_base', 'knowledge_documents', 'knowledge_search', 'writing_management', 'document_templates', 'writing_tasks']
+const OWNER_MENU_KEYS = ['workspace', 'personal_center', 'model_config', 'permission_management', 'applications', 'application_reviews', 'workspace_application_reviews', 'workspace_settings', 'organizations', 'roles', 'members', 'audit', 'menu_configs', 'knowledge_base', 'knowledge_documents', 'knowledge_search', 'ai_chat', 'mcp_skills', 'writing_management', 'document_templates', 'writing_tasks']
 const FRONTEND_MENU_DEFINITIONS = [
   { name: '工作台', menu_key: 'workspace', parent_key: '', view_key: 'workspace', description: '进入公文写作与个人工作区', sort: 10, is_enabled: true },
   { name: '个人中心', menu_key: 'personal_center', parent_key: '', view_key: 'personal_center', description: '查看个人信息、绑定多重验证并管理自己的设备会话', sort: 15, is_enabled: true },
@@ -140,6 +144,8 @@ const FRONTEND_MENU_DEFINITIONS = [
   { menu_key: 'knowledge_base', name: '知识库', parent_key: '', view_key: '', description: '组织知识的导入、索引与检索目录', sort: 200, is_enabled: true },
   { name: '文档导入与索引', menu_key: 'knowledge_documents', parent_key: 'knowledge_base', view_key: 'knowledge_documents', description: '导入文档、查看切片并重建知识索引', sort: 210, is_enabled: true },
   { name: '混合检索与证据', menu_key: 'knowledge_search', parent_key: 'knowledge_base', view_key: 'knowledge_search', description: '使用向量与词法混合检索回溯知识证据', sort: 220, is_enabled: true },
+  { name: 'AI 对话', menu_key: 'ai_chat', parent_key: '', view_key: 'ai_chat', description: '使用当前模型、远程 MCP 和 Skill 进行可追溯的私人对话', sort: 250, is_enabled: true },
+  { name: 'MCP 工具与 Skill 技能', menu_key: 'mcp_skills', parent_key: '', view_key: 'mcp_skills', description: '管理远程 MCP 工具连接和 AI 对话可复用 Skill 指令', sort: 260, is_enabled: true },
   { menu_key: 'writing_management', name: '受控写作', parent_key: '', view_key: '', description: '模板、版本和受控生成工作流目录', sort: 300, is_enabled: true },
   { name: '写作模板', menu_key: 'document_templates', parent_key: 'writing_management', view_key: 'document_templates', description: '维护组织级 Markdown 写作模板和约束', sort: 310, is_enabled: true },
   { name: '写作任务', menu_key: 'writing_tasks', parent_key: 'writing_management', view_key: 'writing_tasks', description: '以模板和知识证据创建可回溯写作任务', sort: 320, is_enabled: true },
@@ -175,9 +181,9 @@ const navigationGroups = computed(() => configuredMenuItems.value
   .filter((group) => menus.value.includes(group.menu_key) || group.children.length > 0))
 const hasModelConfigMenu = computed(() => configuredMenuItems.value.some((item) => item.menu_key === 'model_config') && menus.value.includes('model_config'))
 const hasPersonalCenterMenu = computed(() => configuredMenuItems.value.some((item) => item.menu_key === 'personal_center') && menus.value.includes('personal_center'))
-const activeViewTitle = computed(() => ({ workspace: '公文写作工作台', workspace_applications: '申请加入工作空间', create_workspace: '新建工作空间', personal_center: '个人中心', model_config: '模型配置', applications: '组织申请', application_reviews: '申请审核', workspace_application_reviews: '工作空间审核', workspace_settings: '工作空间设置', organizations: '组织管理', roles: '角色与权限', members: '成员授权', audit: '审计日志', menu_configs: '菜单配置', knowledge_documents: '文档导入与索引', knowledge_search: '混合检索与证据', document_templates: '写作模板', writing_tasks: '写作任务' }[activeView.value] || '工作台'))
-const activeViewSubtitle = computed(() => ({ workspace: '把组织知识、模板与安全协作放在一个工作台里。', workspace_applications: '选择公开工作空间提交申请，审核通过后即可进入对应工作空间。', create_workspace: '创建一个私有工作空间，并自动取得所有者权限。', personal_center: '查看个人信息，绑定多重验证并管理已登录设备。', model_config: '管理当前账号在当前租户中使用的模型连接。', knowledge_documents: '导入资料并建立可回溯的知识索引。', knowledge_search: '从组织知识中找到可以引用的证据。', document_templates: '维护可复用、可约束的公文写作模板。', writing_tasks: '创建、运行并审阅版本化的写作任务。' }[activeView.value] || '在当前组织上下文中完成安全协作。'))
-const navigationIconMap = { workspace: LayoutDashboard, workspace_applications: Building2, create_workspace: Building2, model_config: Settings2, permission_management: Shield, applications: ClipboardList, application_reviews: ClipboardList, workspace_application_reviews: ClipboardList, workspace_settings: Settings2, organizations: Building2, roles: Shield, members: Users, audit: ClipboardList, menu_configs: Settings2, knowledge_base: BookOpen, knowledge_documents: FileText, knowledge_search: Search, writing_management: PenLine, document_templates: FileText, writing_tasks: PenLine }
+const activeViewTitle = computed(() => ({ workspace: '公文写作工作台', workspace_applications: '申请加入工作空间', create_workspace: '新建工作空间', personal_center: '个人中心', model_config: '模型配置', applications: '组织申请', application_reviews: '申请审核', workspace_application_reviews: '工作空间审核', workspace_settings: '工作空间设置', organizations: '组织管理', roles: '角色与权限', members: '成员授权', audit: '审计日志', menu_configs: '菜单配置', knowledge_documents: '文档导入与索引', knowledge_search: '混合检索与证据', ai_chat: 'AI 对话', mcp_skills: 'MCP 工具与 Skill 技能', document_templates: '写作模板', writing_tasks: '写作任务' }[activeView.value] || '工作台'))
+const activeViewSubtitle = computed(() => ({ workspace: '把组织知识、模板与安全协作放在一个工作台里。', workspace_applications: '选择公开工作空间提交申请，审核通过后即可进入对应工作空间。', create_workspace: '创建一个私有工作空间，并自动取得所有者权限。', personal_center: '查看个人信息，绑定多重验证并管理已登录设备。', model_config: '管理当前账号在当前租户中使用的模型连接。', knowledge_documents: '导入资料并建立可回溯的知识索引。', knowledge_search: '从组织知识中找到可以引用的证据。', ai_chat: '在会话中使用已配置模型、远程 MCP 工具和可复用 Skill。', mcp_skills: '配置只允许远程 HTTPS 连接的 MCP 服务，并维护对话 Skill。', document_templates: '维护可复用、可约束的公文写作模板。', writing_tasks: '创建、运行并审阅版本化的写作任务。' }[activeView.value] || '在当前组织上下文中完成安全协作。'))
+const navigationIconMap = { workspace: LayoutDashboard, workspace_applications: Building2, create_workspace: Building2, model_config: Settings2, permission_management: Shield, applications: ClipboardList, application_reviews: ClipboardList, workspace_application_reviews: ClipboardList, workspace_settings: Settings2, organizations: Building2, roles: Shield, members: Users, audit: ClipboardList, menu_configs: Settings2, knowledge_base: BookOpen, knowledge_documents: FileText, knowledge_search: Search, ai_chat: MessageCircle, mcp_skills: Wrench, writing_management: PenLine, document_templates: FileText, writing_tasks: PenLine }
 
 function clearMessage() { notice.value = ''; error.value = '' }
 function showError(message) { notice.value = ''; error.value = message || '操作未完成，请稍后重试。' }
@@ -583,8 +589,9 @@ onBeforeUnmount(() => { if (toastTimer) clearTimeout(toastTimer) })
         <button v-if="hasModelConfigMenu" :class="['nav-item', { active: activeView === 'model_config' }]" type="button" @click="selectView('model_config')"><span class="nav-icon"><Settings2 :size="17" /></span><span>模型配置</span><ChevronRight class="nav-item-arrow" :size="15" /></button>
         <span class="nav-caption nav-caption-spaced">管理与协作</span>
         <section v-for="group in navigationGroups" :key="group.ID || group.menu_key" class="nav-group">
-          <button :class="['nav-item', 'nav-group-toggle', { active: group.children.some((item) => item.view_key === activeView), open: isMenuGroupExpanded(group.menu_key) }]" type="button" :aria-expanded="isMenuGroupExpanded(group.menu_key)" @click="toggleMenuGroup(group.menu_key)"><span class="nav-icon"><component :is="menuIcon(group.menu_key)" :size="17" /></span><span>{{ group.name }}</span><ChevronDown class="nav-item-arrow nav-group-arrow" :size="15" /></button>
-          <div v-show="isMenuGroupExpanded(group.menu_key)" class="nav-children"><button v-for="item in group.children" :key="item.ID || item.menu_key" :class="['nav-child', { active: activeView === item.view_key }]" type="button" @click="selectView(item.view_key, group.menu_key)"><span class="child-dot"></span>{{ item.name }}</button></div>
+          <button v-if="group.children.length" :class="['nav-item', 'nav-group-toggle', { active: group.children.some((item) => item.view_key === activeView), open: isMenuGroupExpanded(group.menu_key) }]" type="button" :aria-expanded="isMenuGroupExpanded(group.menu_key)" @click="toggleMenuGroup(group.menu_key)"><span class="nav-icon"><component :is="menuIcon(group.menu_key)" :size="17" /></span><span>{{ group.name }}</span><ChevronDown class="nav-item-arrow nav-group-arrow" :size="15" /></button>
+          <button v-else :class="['nav-item', { active: activeView === group.view_key }]" type="button" @click="selectView(group.view_key)"><span class="nav-icon"><component :is="menuIcon(group.menu_key)" :size="17" /></span><span>{{ group.name }}</span><ChevronRight class="nav-item-arrow" :size="15" /></button>
+          <div v-if="group.children.length" v-show="isMenuGroupExpanded(group.menu_key)" class="nav-children"><button v-for="item in group.children" :key="item.ID || item.menu_key" :class="['nav-child', { active: activeView === item.view_key }]" type="button" @click="selectView(item.view_key, group.menu_key)"><span class="child-dot"></span>{{ item.name }}</button></div>
         </section>
         </template>
         <span class="nav-caption nav-caption-spaced">工作空间</span>
@@ -594,7 +601,7 @@ onBeforeUnmount(() => { if (toastTimer) clearTimeout(toastTimer) })
       <div class="sidebar-bottom"><div class="org-mini"><span class="org-mini-icon"><Building2 :size="16" /></span><div><small>当前组织</small><strong>{{ selectedOrganization?.name || '未分配组织' }}</strong></div></div><div class="user-card"><span class="avatar">{{ user.username.slice(0, 1).toUpperCase() }}</span><div><strong>{{ user.username }}</strong><button type="button" @click="signOut"><LogOut :size="13" />退出登录</button></div></div></div>
     </aside>
     <section class="content">
-      <header class="topbar">
+      <header :class="['topbar', { 'chat-topbar': activeView === 'ai_chat' }]">
         <div class="topbar-copy"><div class="breadcrumb"><span>INKFLOW</span><ChevronRight :size="13" /><span>{{ activeView === 'workspace' ? 'WORKSPACE' : activeViewTitle.toUpperCase() }}</span></div><h1>{{ activeViewTitle }}</h1><p>{{ activeViewSubtitle }}</p></div>
         <div class="topbar-actions"><label class="tenant-select"><span>当前工作空间</span><div class="select-shell"><select :value="selectedTenantID" @change="selectTenant" :disabled="!tenants.length || systemLoading">
             <option v-if="!selectedTenantID" :value="0">尚未加入工作空间</option>
@@ -617,6 +624,8 @@ onBeforeUnmount(() => { if (toastTimer) clearTimeout(toastTimer) })
       <WorkspaceSettingsPage v-else-if="activeView === 'workspace_settings'" :workspace="tenantSettings" :roles="roles" :saving="systemLoading" @save="saveTenantSettings" @refresh="loadTenantResources" />
       <KnowledgeDocumentPage v-else-if="activeView === 'knowledge_documents'" :tenant-id="selectedTenantID" :organization-id="effectiveOrganizationID" @notice="handleModelNotice" />
       <KnowledgeSearchPage v-else-if="activeView === 'knowledge_search'" :tenant-id="selectedTenantID" :organization-id="effectiveOrganizationID" @notice="handleModelNotice" />
+      <AIChatPage v-else-if="activeView === 'ai_chat'" :tenant-id="selectedTenantID" :organization-id="effectiveOrganizationID" @notice="handleModelNotice" />
+      <MCPAndSkillsPage v-else-if="activeView === 'mcp_skills'" :tenant-id="selectedTenantID" @notice="handleModelNotice" />
       <DocumentTemplatePage v-else-if="activeView === 'document_templates'" :tenant-id="selectedTenantID" :organization-id="effectiveOrganizationID" @notice="handleModelNotice" />
       <WritingTaskPage v-else-if="activeView === 'writing_tasks'" :tenant-id="selectedTenantID" :organization-id="effectiveOrganizationID" :user-id="Number(user?.id || user?.ID || 0)" @notice="handleModelNotice" />
       <section v-else-if="!selectedOrganization" class="empty"><h2>尚未选择组织</h2><p>请先在当前工作空间创建一个组织。</p></section>
@@ -1662,7 +1671,8 @@ onBeforeUnmount(() => { if (toastTimer) clearTimeout(toastTimer) })
 <style scoped>
 .app-shell{grid-template-columns:272px minmax(0,1fr);background:#f8faf9}.content{width:100%;min-width:0;padding:32px clamp(24px,4vw,64px) 56px;background:linear-gradient(180deg,#f8faf9 0,#f5f8f6 100%)}.content>*{width:100%;max-width:none}.topbar{min-height:76px;align-items:flex-start;margin-bottom:26px;padding-bottom:22px;border-bottom:1px solid #e2e9e4}.topbar h1{font-size:30px;letter-spacing:-.03em}.topbar-copy>p{max-width:720px}.topbar-actions{align-items:flex-end}.tenant-select{min-width:240px}.notification-button{width:42px;height:42px}.message{max-width:none;margin:0 0 20px!important;border-radius:10px!important}
 .sidebar{padding:26px 16px 18px;border-right:1px solid rgba(185,226,203,.08);background:linear-gradient(180deg,#123c31 0%,#0e3027 100%);box-shadow:none}.sidebar-glow{z-index:0;pointer-events:none}.sidebar-head,.side-nav,.sidebar-bottom{position:relative;z-index:1}.sidebar-head{padding:0 5px 23px}.side-nav{padding-top:20px}.nav-caption{padding:0 7px}.nav-caption-spaced{margin-top:17px}.nav-item{min-height:42px;border-radius:9px}.nav-child{border-radius:8px}.org-mini{border-radius:11px}.topbar-actions{gap:12px}.select-shell,.notification-button{border-color:#d9e4dc;border-radius:10px;box-shadow:0 1px 2px rgba(25,55,43,.025)}
-@media(max-width:760px){.app-shell{grid-template-columns:1fr}.content{padding:24px 16px 36px}.sidebar{padding:17px 15px}}
+.chat-topbar{min-height:56px;padding-bottom:14px;margin-bottom:16px;align-items:center}.chat-topbar .breadcrumb{display:none}.chat-topbar h1{margin:0;font-size:25px}.chat-topbar .topbar-copy>p{margin-top:4px;color:#718278;font-size:12px;letter-spacing:0;font-weight:500}.chat-topbar .topbar-actions{align-items:center;gap:8px}.chat-topbar .tenant-select{min-width:0;gap:0}.chat-topbar .tenant-select>span{display:none}.chat-topbar .select-shell{min-width:145px}.chat-topbar .tenant-select select{min-height:36px;padding-right:28px;font-size:12px}.chat-topbar .notification-button{width:36px;height:36px}
+@media(max-width:760px){.app-shell{grid-template-columns:1fr}.content{padding:24px 16px 36px}.sidebar{padding:17px 15px}.chat-topbar{align-items:stretch;flex-direction:column;gap:10px}.chat-topbar .topbar-actions{width:100%;align-items:center}.chat-topbar .select-shell{min-width:0;flex:1}}
 
 @media(min-width:761px){
   .sidebar{height:100dvh;overflow:visible;z-index:1}

@@ -17,6 +17,7 @@ type ApiGroup struct {
 	SysModelSettingApi          SysModelSettingApi
 	SysMCPServerApi             SysMCPServerApi
 	SysInferenceApi             SysInferenceApi
+	AIChatApi                   AIChatApi
 }
 
 // ApiGroupApp is consumed by the matching router modules.

@@ -3,6 +3,7 @@ package officialdoc
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -81,6 +82,30 @@ func TestRemainingKnowledgeSearchCallsCountsAllAttempts(t *testing.T) {
 	}
 	if remaining != writingKnowledgeSearchMaxCalls-3 {
 		t.Fatalf("expected %d remaining calls, got %d", writingKnowledgeSearchMaxCalls-3, remaining)
+	}
+}
+
+func TestFrozenKnowledgeEvidenceKeepsCompleteContent(t *testing.T) {
+	content := strings.Repeat("证", 1200)
+	evidence := frozenKnowledgeEvidence(model.WritingRunEvidence{Rank: 9, ContentSnapshot: content}, false)
+	if evidence.Citation != "[E9]" || evidence.Content != content {
+		t.Fatalf("search evidence was unexpectedly shortened: %#v", evidence)
+	}
+}
+
+func TestControlledWritingPromptIncludesAllFrozenEvidence(t *testing.T) {
+	evidence := make([]response.KnowledgeEvidence, 0, 9)
+	for rank := 1; rank <= 9; rank++ {
+		evidence = append(evidence, response.KnowledgeEvidence{
+			DocumentName: "测试文档", Title: fmt.Sprintf("第%d节", rank), Content: fmt.Sprintf("证据正文-%d", rank),
+		})
+	}
+	_, prompt := controlledWritingPrompt("outline", &model.WritingTask{Title: "测试任务", Requirement: "验证上下文边界"}, model.DocumentTemplate{Name: "测试模板"}, evidence)
+	if !strings.Contains(prompt, "证据正文-1") || !strings.Contains(prompt, "证据正文-9") {
+		t.Fatalf("prompt lost complete frozen evidence: %s", prompt)
+	}
+	if strings.Contains(prompt, "writing.compress_evidence") {
+		t.Fatalf("internal compactor leaked into the model prompt: %s", prompt)
 	}
 }
 

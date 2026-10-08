@@ -59,7 +59,8 @@ type Tool struct {
 	MaxRetries int
 	// SummaryMaxRunes 是调用轨迹中短摘要的最大字符数；零值为 1200。
 	SummaryMaxRunes int
-	// ContextMaxRunes 是后续模型轮次可看到的工具结果最大字符数；零值为 4000。
+	// ContextMaxRunes 是后续模型轮次可看到的工具结果最大字符数；零值为 4000，
+	// 负数表示保留完整结果，由调用方的上下文压缩策略负责收敛。
 	ContextMaxRunes int
 	// StopOnError 为 true 时，调用失败立即终止整轮编排；否则允许模型修正参数后继续。
 	StopOnError bool
@@ -92,6 +93,8 @@ type Trace struct {
 	outputContext string
 	// outputTrimmed 表示完整结果过长，回传模型时只携带 outputContext 摘要。
 	outputTrimmed bool
+	// contextArchived 表示该结果已由一次内部压缩取代，不能再次拼回模型上下文。
+	contextArchived bool
 }
 
 // Registry 维护领域名称和 LLM 协议名称的双向映射。
@@ -238,12 +241,14 @@ func (r *Registry) Call(ctx context.Context, name string, args json.RawMessage) 
 	}
 	trace.OutputSummary = utils.Summarize(result, summaryMaxRunes)
 	contextMaxRunes := tool.ContextMaxRunes
-	if contextMaxRunes <= 0 {
+	if contextMaxRunes == 0 {
 		contextMaxRunes = 4000
 	}
 	trace.outputContext = utils.Summarize(result, contextMaxRunes)
-	if encoded, marshalErr := json.Marshal(result); marshalErr == nil {
-		trace.outputTrimmed = len([]rune(strings.TrimSpace(string(encoded)))) > contextMaxRunes
+	if contextMaxRunes > 0 {
+		if encoded, marshalErr := json.Marshal(result); marshalErr == nil {
+			trace.outputTrimmed = len([]rune(strings.TrimSpace(string(encoded)))) > contextMaxRunes
+		}
 	}
 	return result, trace, nil
 }
@@ -268,12 +273,14 @@ func (r *Registry) ResultTrace(name string, args json.RawMessage, result any) Tr
 	}
 	trace.OutputSummary = utils.Summarize(result, summaryMaxRunes)
 	contextMaxRunes := tool.ContextMaxRunes
-	if contextMaxRunes <= 0 {
+	if contextMaxRunes == 0 {
 		contextMaxRunes = 4000
 	}
 	trace.outputContext = utils.Summarize(result, contextMaxRunes)
-	if encoded, marshalErr := json.Marshal(result); marshalErr == nil {
-		trace.outputTrimmed = len([]rune(strings.TrimSpace(string(encoded)))) > contextMaxRunes
+	if contextMaxRunes > 0 {
+		if encoded, marshalErr := json.Marshal(result); marshalErr == nil {
+			trace.outputTrimmed = len([]rune(strings.TrimSpace(string(encoded)))) > contextMaxRunes
+		}
 	}
 	return trace
 }

@@ -4,6 +4,7 @@ import {
   claimAuthSessionForTab,
   getAPIBase,
   setAuthToken,
+  streamJson,
 } from './api'
 
 // Browser deployments use Nginx's /api prefix; the desktop runtime points
@@ -108,6 +109,65 @@ export function fetchModelSettings(tenantID) {
 
 export function saveModelSettings(tenantID, payload) {
   return apiJson(`${API_PREFIX}/system/model-settings`, payload, 'PUT', tenantOptions(tenantID))
+}
+
+export function listAIChatConversations(tenantID, organizationID) {
+  return apiGet(`${API_PREFIX}/system/ai-chat/conversations`, { organization_id: organizationID }, tenantOptions(tenantID))
+}
+
+export function createAIChatConversation(tenantID, payload) {
+  return apiJson(`${API_PREFIX}/system/ai-chat/conversations`, payload, 'POST', tenantOptions(tenantID))
+}
+
+export function getAIChatConversation(tenantID, conversationID) {
+  return apiGet(`${API_PREFIX}/system/ai-chat/conversations/${conversationID}`, {}, tenantOptions(tenantID))
+}
+
+export function deleteAIChatConversation(tenantID, conversationID) {
+  return apiJson(`${API_PREFIX}/system/ai-chat/conversations/${conversationID}`, {}, 'DELETE', tenantOptions(tenantID))
+}
+
+export function sendAIChatMessage(tenantID, conversationID, payload) {
+  return apiJson(`${API_PREFIX}/system/ai-chat/conversations/${conversationID}/messages`, payload, 'POST', tenantOptions(tenantID))
+}
+
+export function streamAIChatMessage(tenantID, conversationID, payload, handlers, options = {}) {
+  return streamJson(`${API_PREFIX}/system/ai-chat/conversations/${conversationID}/messages/stream`, payload, handlers, {
+    ...options,
+    headers: { ...tenantOptions(tenantID).headers, ...(options.headers || {}) },
+  })
+}
+
+export function listMCPServers(tenantID) {
+  return apiGet(`${API_PREFIX}/system/mcp-servers`, {}, tenantOptions(tenantID))
+}
+
+export function createMCPServer(tenantID, payload) {
+  return apiJson(`${API_PREFIX}/system/mcp-servers`, payload, 'POST', tenantOptions(tenantID))
+}
+
+export function updateMCPServer(tenantID, serverID, payload) {
+  return apiJson(`${API_PREFIX}/system/mcp-servers/${serverID}`, payload, 'PUT', tenantOptions(tenantID))
+}
+
+export function deleteMCPServer(tenantID, serverID) {
+  return apiJson(`${API_PREFIX}/system/mcp-servers/${serverID}`, {}, 'DELETE', tenantOptions(tenantID))
+}
+
+export function listAISkills(tenantID) {
+  return apiGet(`${API_PREFIX}/system/ai-skills`, {}, tenantOptions(tenantID))
+}
+
+export function createAISkill(tenantID, payload) {
+  return apiJson(`${API_PREFIX}/system/ai-skills`, payload, 'POST', tenantOptions(tenantID))
+}
+
+export function updateAISkill(tenantID, skillID, payload) {
+  return apiJson(`${API_PREFIX}/system/ai-skills/${skillID}`, payload, 'PUT', tenantOptions(tenantID))
+}
+
+export function deleteAISkill(tenantID, skillID) {
+  return apiJson(`${API_PREFIX}/system/ai-skills/${skillID}`, {}, 'DELETE', tenantOptions(tenantID))
 }
 
 export function fetchMenus(tenantID) {

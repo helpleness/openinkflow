@@ -319,6 +319,61 @@ func TestIsolatedToolProgressContextKeepsExpandedQueryEvidence(t *testing.T) {
 	}
 }
 
+func TestIsolatedToolProgressContextKeepsLLMCompressionResult(t *testing.T) {
+	context := isolatedToolProgressContext([]Trace{{
+		ToolName:      "writing.compress_evidence",
+		Kind:          KindLLM,
+		Input:         json.RawMessage(`{"focus":"梳理关系","citations":["E1","E2"]}`),
+		OutputSummary: "压缩摘要",
+		outputContext: "研发一组的汇报关系由 [E1] 和 [E2] 支持。",
+		Status:        "ok",
+	}}, 18000)
+	if !strings.Contains(context, "研发一组的汇报关系") || !strings.Contains(context, "最近有效只读或模型归纳结果") {
+		t.Fatalf("LLM compression result was not retained for the next isolated round: %s", context)
+	}
+}
+
+func TestInternalContextCompactionPreservesFullToolPayloadUntilThreshold(t *testing.T) {
+	registry := NewRegistry()
+	state := testRunState(t, registry, RunOptions{
+		ContextCompactionMaxRunes: 20,
+		ContextCompactionTool:     "writing.compress_evidence",
+		ContextCompactor: func(_ context.Context, items []ContextItem) (string, error) {
+			if len(items) != 1 || !strings.Contains(items[0].Output, "完整检索内容") {
+				t.Fatalf("compactor did not receive the full tool payload: %#v", items)
+			}
+			return "压缩后的证据摘要 [E1]", nil
+		},
+	}, nil)
+	state.messages = append(state.messages, domainllm.Message{Role: "tool", Content: strings.Repeat("完整检索内容", 10)})
+	state.ledger.Traces = []Trace{
+		{ToolName: "knowledge.search", Kind: KindQuery, Status: "ok", OutputSummary: "短审计摘要", outputContext: strings.Repeat("完整检索内容", 10)},
+		{ToolName: "knowledge.search", Kind: KindQuery, Status: "ok", OutputSummary: "新结果", outputContext: "本轮新结果 [E9]"},
+	}
+	if err := state.compactToolContextIfNeeded(1); err != nil {
+		t.Fatalf("automatic compaction failed: %v", err)
+	}
+	if len(state.ledger.Traces) != 3 || !state.ledger.Traces[0].contextArchived || state.ledger.Traces[1].contextArchived || state.ledger.Traces[2].ToolName != "writing.compress_evidence" {
+		t.Fatalf("unexpected compaction ledger: %#v", state.ledger.Traces)
+	}
+	lastMessage := state.messages[len(state.messages)-1].Content
+	if !strings.Contains(lastMessage, "本轮新结果 [E9]") || strings.Contains(lastMessage, "完整检索内容完整检索内容") {
+		t.Fatalf("compacted context was not substituted correctly: %s", lastMessage)
+	}
+}
+
+func TestNegativeToolContextLimitKeepsCompleteResult(t *testing.T) {
+	registry := NewRegistry()
+	registerTestTool(t, registry, Tool{
+		Name: "knowledge.search", ContextMaxRunes: -1,
+		Handler: func(context.Context, json.RawMessage) (any, error) { return strings.Repeat("完整结果", 1000), nil },
+	})
+	_, trace, err := registry.Call(context.Background(), "knowledge.search", json.RawMessage(`{}`))
+	if err != nil || trace.outputTrimmed || len([]rune(trace.outputContext)) < len([]rune("完整结果"))*1000 {
+		t.Fatalf("full result was unexpectedly trimmed: trace=%+v err=%v", trace, err)
+	}
+}
+
 func TestOutputLimitRecoveryPromptRequiresImmediateConvergence(t *testing.T) {
 	messages := outputLimitRecoveryMessages(
 		[]domainllm.Message{{Role: "user", Content: "创建文档"}},

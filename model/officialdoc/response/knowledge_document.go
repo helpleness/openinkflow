@@ -3,16 +3,18 @@ package response
 import "time"
 
 type KnowledgeDocumentView struct {
-	ID             uint       `json:"id"`
-	OrganizationID uint       `json:"organization_id"`
-	Name           string     `json:"name"`
-	OriginalName   string     `json:"original_name"`
-	ContentType    string     `json:"content_type"`
-	ChunkCount     int        `json:"chunk_count"`
-	Status         string     `json:"status"`
-	FailureReason  string     `json:"failure_reason,omitempty"`
-	CreatedAt      time.Time  `json:"created_at"`
-	IndexedAt      *time.Time `json:"indexed_at,omitempty"`
+	ID                 uint       `json:"id"`
+	OrganizationID     uint       `json:"organization_id"`
+	Name               string     `json:"name"`
+	OriginalName       string     `json:"original_name"`
+	ContentType        string     `json:"content_type"`
+	ChunkCount         int        `json:"chunk_count"`
+	Status             string     `json:"status"`
+	ProcessingStage    string     `json:"processing_stage,omitempty"`
+	ProcessingProgress int        `json:"processing_progress"`
+	FailureReason      string     `json:"failure_reason,omitempty"`
+	CreatedAt          time.Time  `json:"created_at"`
+	IndexedAt          *time.Time `json:"indexed_at,omitempty"`
 }
 
 // KnowledgeEvidence is a source chunk returned by search and stored by generation.

@@ -16,6 +16,7 @@ type ServiceGroup struct {
 	SysAuditService
 	SysModelSettingService
 	SysMCPServerService
+	AIChatService
 }
 
 // ServiceGroupApp is consumed by API, middleware, router and initialization.

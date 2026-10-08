@@ -33,6 +33,17 @@ type fakeObjectStorage struct {
 	signedFor time.Duration
 }
 
+func (fake *fakeObjectStorage) Download(ctx context.Context, key string) (io.ReadCloser, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	data, exists := fake.objects[key]
+	if !exists {
+		return nil, fmt.Errorf("object %q does not exist", key)
+	}
+	return io.NopCloser(bytes.NewReader(data)), nil
+}
+
 func (fake *fakeObjectStorage) Upload(ctx context.Context, key string, reader io.Reader, _ int64, _ string) error {
 	if err := ctx.Err(); err != nil {
 		return err

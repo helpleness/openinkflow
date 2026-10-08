@@ -50,6 +50,20 @@ func (service *KnowledgeSearchService) ListDocuments(ctx context.Context, tenant
 	return views, nil
 }
 
+// GetDocumentView reads only the durable document lifecycle state. SSE uses
+// this lightweight method instead of repeatedly loading every chunk.
+func (service *KnowledgeSearchService) GetDocumentView(ctx context.Context, tenantID, documentID, userID uint) (response.KnowledgeDocumentView, error) {
+	db := global.GVA_DB
+	var document model.KnowledgeDocument
+	if err := db.WithContext(ctx).Where("id = ? AND tenant_id = ?", documentID, tenantID).First(&document).Error; err != nil {
+		return response.KnowledgeDocumentView{}, err
+	}
+	if err := ensureKnowledgeMember(ctx, tenantID, document.OrganizationID, userID); err != nil {
+		return response.KnowledgeDocumentView{}, err
+	}
+	return documentView(document), nil
+}
+
 func (service *KnowledgeSearchService) GetDocument(ctx context.Context, tenantID, documentID, userID uint) (response.KnowledgeDocumentView, []model.KnowledgeChunk, error) {
 	db := global.GVA_DB
 	var document model.KnowledgeDocument
@@ -105,6 +119,9 @@ func (service *KnowledgeSearchService) DeleteDocument(ctx context.Context, tenan
 	}
 	if err := ensureKnowledgeMember(ctx, tenantID, document.OrganizationID, userID); err != nil {
 		return err
+	}
+	if document.Status == "processing" || document.Status == "indexing" {
+		return fmt.Errorf("文档正在后台处理，请等待完成或失败后再删除")
 	}
 	if !storage.IsKnowledgeObjectKeyForOrganization(document.OrganizationID, document.ObjectKey) {
 		return fmt.Errorf("文档对象路径无效，拒绝删除")
@@ -176,7 +193,19 @@ func (service *KnowledgeSearchService) IndexDocument(ctx context.Context, tenant
 	if err := ensureKnowledgeMember(ctx, tenantID, document.OrganizationID, userID); err != nil {
 		return nil, err
 	}
-	if err := db.WithContext(ctx).Model(&document).Updates(map[string]any{"status": "indexing", "failure_reason": "", "indexed_at": nil}).Error; err != nil {
+	if document.Status == "processing_failed" {
+		return nil, fmt.Errorf("文档解析失败且尚未生成切片，请使用“重新解析”")
+	}
+	if document.Status == "processing" {
+		return nil, fmt.Errorf("文档正在后台处理，无需重复建立索引")
+	}
+	if err := db.WithContext(ctx).Model(&document).Updates(map[string]any{
+		"status":              "indexing",
+		"processing_stage":    knowledgeStageIndexing,
+		"processing_progress": 85,
+		"failure_reason":      "",
+		"indexed_at":          nil,
+	}).Error; err != nil {
 		return nil, err
 	}
 	var chunks []model.KnowledgeChunk
@@ -219,9 +248,17 @@ func (service *KnowledgeSearchService) IndexDocument(ctx context.Context, tenant
 		return service.indexFailure(ctx, &document, fmt.Sprintf("同步向量索引失败: %v", err))
 	}
 	document.Status = "ready"
+	document.ProcessingStage = knowledgeStageCompleted
+	document.ProcessingProgress = 100
 	document.FailureReason = ""
 	document.IndexedAt = &now
-	if err := db.WithContext(ctx).Model(&document).Updates(map[string]any{"status": document.Status, "failure_reason": "", "indexed_at": now}).Error; err != nil {
+	if err := db.WithContext(ctx).Model(&document).Updates(map[string]any{
+		"status":              document.Status,
+		"processing_stage":    document.ProcessingStage,
+		"processing_progress": document.ProcessingProgress,
+		"failure_reason":      "",
+		"indexed_at":          now,
+	}).Error; err != nil {
 		return nil, err
 	}
 	return &document, nil
@@ -229,8 +266,15 @@ func (service *KnowledgeSearchService) IndexDocument(ctx context.Context, tenant
 
 func (service *KnowledgeSearchService) indexFailure(ctx context.Context, document *model.KnowledgeDocument, reason string) (*model.KnowledgeDocument, error) {
 	document.Status = "index_failed"
+	document.ProcessingStage = knowledgeStageFailed
+	document.ProcessingProgress = 100
 	document.FailureReason = reason
-	if err := global.GVA_DB.WithContext(ctx).Model(document).Updates(map[string]any{"status": document.Status, "failure_reason": reason}).Error; err != nil {
+	if err := global.GVA_DB.WithContext(ctx).Model(document).Updates(map[string]any{
+		"status":              document.Status,
+		"processing_stage":    document.ProcessingStage,
+		"processing_progress": document.ProcessingProgress,
+		"failure_reason":      reason,
+	}).Error; err != nil {
 		return nil, err
 	}
 	return document, fmt.Errorf("知识库索引失败: %s", reason)
@@ -449,5 +493,5 @@ func ensureKnowledgeMember(ctx context.Context, tenantID, organizationID, userID
 }
 
 func documentView(document model.KnowledgeDocument) response.KnowledgeDocumentView {
-	return response.KnowledgeDocumentView{ID: document.ID, OrganizationID: document.OrganizationID, Name: document.Name, OriginalName: document.OriginalName, ContentType: document.ContentType, ChunkCount: document.ChunkCount, Status: document.Status, FailureReason: document.FailureReason, CreatedAt: document.CreatedAt, IndexedAt: document.IndexedAt}
+	return response.KnowledgeDocumentView{ID: document.ID, OrganizationID: document.OrganizationID, Name: document.Name, OriginalName: document.OriginalName, ContentType: document.ContentType, ChunkCount: document.ChunkCount, Status: document.Status, ProcessingStage: document.ProcessingStage, ProcessingProgress: document.ProcessingProgress, FailureReason: document.FailureReason, CreatedAt: document.CreatedAt, IndexedAt: document.IndexedAt}
 }

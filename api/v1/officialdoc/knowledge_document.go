@@ -2,6 +2,7 @@ package officialdoc
 
 import (
 	commonResponse "InkFlow/model/common/response"
+	response "InkFlow/model/officialdoc/response"
 	service "InkFlow/service/officialdoc"
 	"InkFlow/utils/ginctx"
 	"strconv"
@@ -24,5 +25,14 @@ func (api *KnowledgeDocumentApi) Import(c *gin.Context) {
 		return
 	}
 	document, err := service.ServiceGroupApp.KnowledgeDocumentService.Import(c.Request.Context(), ginctx.CurrentTenantID(c), uint(organizationID), ginctx.CurrentUserID(c), file)
-	commonResponse.Respond(document, err, commonResponse.ErrForbidden, c)
+	if err != nil {
+		commonResponse.Respond(nil, err, commonResponse.ErrForbidden, c)
+		return
+	}
+	commonResponse.OkWithData(response.KnowledgeDocumentView{
+		ID: document.ID, OrganizationID: document.OrganizationID, Name: document.Name, OriginalName: document.OriginalName,
+		ContentType: document.ContentType, ChunkCount: document.ChunkCount, Status: document.Status,
+		ProcessingStage: document.ProcessingStage, ProcessingProgress: document.ProcessingProgress,
+		FailureReason: document.FailureReason, CreatedAt: document.CreatedAt, IndexedAt: document.IndexedAt,
+	}, c)
 }

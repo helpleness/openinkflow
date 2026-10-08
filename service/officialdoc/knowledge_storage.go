@@ -44,8 +44,16 @@ func markKnowledgeDocumentProcessingFailed(ctx context.Context, document *model.
 		reason = string([]rune(reason)[:2000])
 	}
 	document.Status = "processing_failed"
+	document.ProcessingStage = knowledgeStageFailed
+	document.ProcessingProgress = 100
 	document.FailureReason = reason
-	if err := global.GVA_DB.WithContext(ctx).Model(document).Updates(map[string]any{"status": document.Status, "failure_reason": reason, "indexed_at": nil}).Error; err != nil {
+	if err := global.GVA_DB.WithContext(ctx).Model(document).Updates(map[string]any{
+		"status":              document.Status,
+		"processing_stage":    document.ProcessingStage,
+		"processing_progress": document.ProcessingProgress,
+		"failure_reason":      reason,
+		"indexed_at":          nil,
+	}).Error; err != nil {
 		return document, fmt.Errorf("记录文档处理失败原因失败: %w", err)
 	}
 	return document, nil

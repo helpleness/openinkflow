@@ -16,6 +16,8 @@ func (router *KnowledgeSearchRouter) InitKnowledgeSearchRouter(Router, _ *gin.Ro
 		knowledgeRouter.GET("", knowledgeSearchApi.ListDocuments)
 		knowledgeRouter.GET("/:id", knowledgeSearchApi.GetDocument)
 		knowledgeRouter.GET("/:id/download", knowledgeSearchApi.DownloadDocument)
+		knowledgeRouter.GET("/:id/events", knowledgeSearchApi.Events)
+		knowledgeRouter.POST("/:id/reprocess", knowledgeSearchApi.ReprocessDocument)
 		knowledgeRouter.POST("/:id/reindex", knowledgeSearchApi.ReindexDocument)
 		knowledgeRouter.DELETE("/:id", knowledgeSearchApi.DeleteDocument)
 	}

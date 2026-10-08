@@ -2,7 +2,6 @@ package llm
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -10,13 +9,6 @@ import (
 	domain "InkFlow/internal/ai/llm"
 	"InkFlow/internal/ai/llm/providers"
 )
-
-// ImageSemantic is the optional external model's text transcription and
-// knowledge-oriented description of one image.
-type ImageSemantic struct {
-	Text     string `json:"text"`
-	Semantic string `json:"semantic"`
-}
 
 // ImageSemanticAnalyzer is a small application adapter over the shared LLM
 // provider contract. It has no HTTP or vendor DTO knowledge.
@@ -38,9 +30,13 @@ func NewImageSemanticAnalyzer(cfg config.LLM) *ImageSemanticAnalyzer {
 	return &ImageSemanticAnalyzer{config: cfg, model: model, provider: provider}
 }
 
-func (analyzer *ImageSemanticAnalyzer) AnalyzeImage(ctx context.Context, mime string, data []byte) (ImageSemantic, error) {
+// AnalyzeImage returns the model's complete, human-readable knowledge text.
+// The result can be a transcription, a chart summary, or both. It deliberately
+// has no structured-output contract because vision models do not reliably
+// follow one across OpenAI-compatible providers.
+func (analyzer *ImageSemanticAnalyzer) AnalyzeImage(ctx context.Context, mime string, data []byte) (string, error) {
 	if analyzer == nil || len(data) == 0 {
-		return ImageSemantic{}, nil
+		return "", nil
 	}
 	if ctx == nil {
 		ctx = context.Background()
@@ -56,40 +52,20 @@ func (analyzer *ImageSemanticAnalyzer) AnalyzeImage(ctx context.Context, mime st
 		MaxTokens:   &maxTokens,
 		Messages: []domain.Message{{
 			Role:    domain.RoleUser,
-			Content: "先转写图片中可辨认的文字、表头和关键单元格；再提取这张图表或表格的知识库语义，说明指标、单位、时间范围、趋势、结论和关键数值。不要臆测。只返回 JSON：{\"text\":\"...\",\"semantic\":\"...\"}。",
+			Content: "请输出可直接用于知识库检索的纯文本，不要返回 JSON、XML、代码块或固定字段。图片中有可辨认文字、表格、表头或关键单元格时，优先按原有阅读顺序完整转写；图片主要是图表、流程图、照片或无法可靠逐字转写时，说明主题、指标、单位、时间范围、关键数值、趋势和结论。不要臆测；无法确认的信息明确写“无法确认”。",
 			Images:  []domain.ImageInput{{MIMEType: mime, Data: data}},
 		}},
 	})
 	if err != nil {
-		return ImageSemantic{}, fmt.Errorf("image semantic model: %w", err)
+		return "", fmt.Errorf("image semantic model: %w", err)
 	}
-	semantic, err := decodeImageSemantic(response.Message.Content)
-	if err != nil {
-		return ImageSemantic{}, err
-	}
-	semantic.Text = strings.TrimSpace(semantic.Text)
-	semantic.Semantic = strings.TrimSpace(semantic.Semantic)
-	return semantic, nil
+	return normalizeImageKnowledge(response.Message.Content)
 }
 
-// decodeImageSemantic accepts both the requested JSON and the common fenced
-// variant returned by otherwise OpenAI-compatible models.
-func decodeImageSemantic(content string) (ImageSemantic, error) {
+func normalizeImageKnowledge(content string) (string, error) {
 	content = strings.TrimSpace(content)
-	if strings.HasPrefix(content, "```") {
-		if firstBreak := strings.IndexByte(content, '\n'); firstBreak >= 0 {
-			content = strings.TrimSpace(content[firstBreak+1:])
-		}
-		content = strings.TrimSuffix(content, "```")
-		content = strings.TrimSpace(content)
+	if content == "" {
+		return "", fmt.Errorf("image semantic model returned empty content")
 	}
-	start, end := strings.IndexByte(content, '{'), strings.LastIndexByte(content, '}')
-	if start < 0 || end < start {
-		return ImageSemantic{}, fmt.Errorf("image semantic model returned non-JSON")
-	}
-	var semantic ImageSemantic
-	if err := json.Unmarshal([]byte(content[start:end+1]), &semantic); err != nil {
-		return ImageSemantic{}, fmt.Errorf("invalid image semantic model JSON: %w", err)
-	}
-	return semantic, nil
+	return content, nil
 }

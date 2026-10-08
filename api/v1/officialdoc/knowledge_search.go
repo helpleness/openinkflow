@@ -1,7 +1,10 @@
 package officialdoc
 
 import (
+	"encoding/json"
+	"net/http"
 	"strconv"
+	"time"
 
 	commonResponse "InkFlow/model/common/response"
 	request "InkFlow/model/officialdoc/request"
@@ -61,10 +64,98 @@ func (api *KnowledgeSearchApi) ReindexDocument(c *gin.Context) {
 	}
 	document, err := service.ServiceGroupApp.KnowledgeSearchService.IndexDocument(c.Request.Context(), ginctx.CurrentTenantID(c), uint(documentID), ginctx.CurrentUserID(c))
 	if document != nil {
-		commonResponse.OkWithDetailed(response.KnowledgeDocumentView{ID: document.ID, OrganizationID: document.OrganizationID, Name: document.Name, OriginalName: document.OriginalName, ContentType: document.ContentType, ChunkCount: document.ChunkCount, Status: document.Status, FailureReason: document.FailureReason, CreatedAt: document.CreatedAt, IndexedAt: document.IndexedAt}, "索引已完成或已记录失败原因", c)
+		commonResponse.OkWithDetailed(response.KnowledgeDocumentView{ID: document.ID, OrganizationID: document.OrganizationID, Name: document.Name, OriginalName: document.OriginalName, ContentType: document.ContentType, ChunkCount: document.ChunkCount, Status: document.Status, ProcessingStage: document.ProcessingStage, ProcessingProgress: document.ProcessingProgress, FailureReason: document.FailureReason, CreatedAt: document.CreatedAt, IndexedAt: document.IndexedAt}, "索引已完成或已记录失败原因", c)
 		return
 	}
 	commonResponse.Respond(nil, err, commonResponse.ErrForbidden, c)
+}
+
+func (api *KnowledgeSearchApi) ReprocessDocument(c *gin.Context) {
+	documentID, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil || documentID == 0 {
+		commonResponse.BadRequest("无效的文档 ID", c)
+		return
+	}
+	document, err := service.ServiceGroupApp.KnowledgeDocumentService.Reprocess(c.Request.Context(), ginctx.CurrentTenantID(c), uint(documentID), ginctx.CurrentUserID(c))
+	if err != nil {
+		commonResponse.Respond(nil, err, commonResponse.ErrForbidden, c)
+		return
+	}
+	commonResponse.OkWithDetailed(response.KnowledgeDocumentView{
+		ID: document.ID, OrganizationID: document.OrganizationID, Name: document.Name, OriginalName: document.OriginalName,
+		ContentType: document.ContentType, ChunkCount: document.ChunkCount, Status: document.Status,
+		ProcessingStage: document.ProcessingStage, ProcessingProgress: document.ProcessingProgress,
+		FailureReason: document.FailureReason, CreatedAt: document.CreatedAt, IndexedAt: document.IndexedAt,
+	}, "文档已重新排队解析", c)
+}
+
+// Events streams persisted lifecycle changes for one document. It is safe to
+// reconnect because every payload is read from the database, not process memory.
+func (api *KnowledgeSearchApi) Events(c *gin.Context) {
+	documentID, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil || documentID == 0 {
+		commonResponse.BadRequest("无效的文档 ID", c)
+		return
+	}
+	tenantID := ginctx.CurrentTenantID(c)
+	userID := ginctx.CurrentUserID(c)
+	document, err := service.ServiceGroupApp.KnowledgeSearchService.GetDocumentView(c.Request.Context(), tenantID, uint(documentID), userID)
+	if err != nil {
+		commonResponse.Respond(nil, err, commonResponse.ErrForbidden, c)
+		return
+	}
+	c.Header("Content-Type", "text/event-stream")
+	c.Header("Cache-Control", "no-cache")
+	c.Header("Connection", "keep-alive")
+	c.Header("X-Accel-Buffering", "no")
+	c.Status(http.StatusOK)
+
+	lastPayload := ""
+	lastKeepAlive := time.Now()
+	send := func(event string, payload any) {
+		c.SSEvent(event, payload)
+		c.Writer.Flush()
+	}
+	sendDocument := func(item response.KnowledgeDocumentView) {
+		encoded, marshalErr := json.Marshal(item)
+		if marshalErr != nil || string(encoded) == lastPayload {
+			return
+		}
+		lastPayload = string(encoded)
+		send("document", item)
+	}
+	completed := func(status string) bool {
+		return status == "ready" || status == "processing_failed" || status == "index_failed" || status == "delete_failed"
+	}
+	sendDocument(document)
+	if completed(document.Status) {
+		send("done", document)
+		return
+	}
+
+	ticker := time.NewTicker(700 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-c.Request.Context().Done():
+			return
+		case <-ticker.C:
+			document, err = service.ServiceGroupApp.KnowledgeSearchService.GetDocumentView(c.Request.Context(), tenantID, uint(documentID), userID)
+			if err != nil {
+				send("error", gin.H{"message": err.Error()})
+				return
+			}
+			sendDocument(document)
+			if completed(document.Status) {
+				send("done", document)
+				return
+			}
+			if time.Since(lastKeepAlive) >= 15*time.Second {
+				send("ping", gin.H{"at": time.Now().UTC().Format(time.RFC3339)})
+				lastKeepAlive = time.Now()
+			}
+		}
+	}
 }
 
 func (api *KnowledgeSearchApi) DeleteDocument(c *gin.Context) {

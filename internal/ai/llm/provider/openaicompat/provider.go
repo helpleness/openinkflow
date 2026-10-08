@@ -36,6 +36,26 @@ type OpenAIProvider struct{ *Provider }
 
 func NewOpenAIProvider(config Config) (*OpenAIProvider, error) {
 	config.Capabilities = llm.Capabilities{Streaming: true, ToolCalling: true, StructuredOutputs: true, Vision: true}
+	return newProvider(config)
+}
+
+// NewDeepSeekProvider keeps the OpenAI-compatible transport while owning
+// DeepSeek's explicit thinking extension. Keeping this behavior here avoids
+// leaking vendor-specific request fields into application services.
+func NewDeepSeekProvider(config Config) (*OpenAIProvider, error) {
+	config.Capabilities = llm.Capabilities{Streaming: true, ToolCalling: true, StructuredOutputs: true, Vision: true, Reasoning: true}
+	config.MutateRequest = func(params *openai.ChatCompletionNewParams, request llm.ChatRequest) error {
+		thinking := "disabled"
+		if request.Reasoning != nil && request.Reasoning.Enabled {
+			thinking = "enabled"
+		}
+		params.SetExtraFields(map[string]any{"thinking": map[string]string{"type": thinking}})
+		return nil
+	}
+	return newProvider(config)
+}
+
+func newProvider(config Config) (*OpenAIProvider, error) {
 	if strings.TrimSpace(config.Name) == "" {
 		return nil, fmt.Errorf("openai-compatible provider name is required")
 	}

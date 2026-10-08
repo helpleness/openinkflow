@@ -334,7 +334,7 @@ func (service *WritingRunService) composeDocument(ctx context.Context, runID uin
 		}
 	}
 	systemPrompt, userPrompt := controlledWritingPrompt(run.Stage, task, template, evidence)
-	systemPrompt += "\n在生成过程中，如果现有证据不足以完成任务，可以调用只读 knowledge.search。只能把初始证据和该工具返回并带有 [E编号] 的内容作为事实依据。"
+	systemPrompt += "\n在生成过程中，如果现有证据不足以完成任务，可以调用只读 knowledge.search。只能把初始证据和该工具返回并带有 [E编号] 的内容作为事实依据。服务端会在工具上下文过长时自动压缩较早结果；压缩摘要中的具体事实同样必须保留 [E编号]。"
 	if remainingSearchCalls > 0 {
 		userPrompt += fmt.Sprintf("\n你还可以调用 knowledge.search 最多 %d 次。query 可使用需要连续出现的完整短语，也可使用空格分隔的多个关键词，检索器会同时处理这两种方式。多跳检索时，沿与用户目标直接相关且已被证据确认的关系链继续，并优先加入上一轮新发现的实体或编号；不要转向结果中的无关并列对象。证据足够后停止检索并直接生成最终内容，不要重复相同查询。\n", remainingSearchCalls)
 	} else {
@@ -352,6 +352,14 @@ func (service *WritingRunService) composeDocument(ctx context.Context, runID uin
 		MaxToolCalls:         maxToolCalls,
 		MaxLLMToolCalls:      1,
 		MaxMutationToolCalls: 1,
+		// Full search results stay in the model conversation. The runtime calls
+		// the private compactor only after the aggregate tool context crosses the
+		// threshold; it is intentionally absent from the model's tool schema.
+		ContextCompactionMaxRunes: writingEvidenceContextMaxRunes,
+		ContextCompactionTool:     writingEvidenceCompressionTool,
+		ContextCompactor: func(toolCtx context.Context, items []orchestrator.ContextItem) (string, error) {
+			return service.compressWritingToolContext(toolCtx, run.ID, items)
+		},
 		ReturnAfterToolCalls: false,
 		SynthesizeAfterTools: false,
 		LLM: &llmutil.GenerateOptions{
@@ -364,12 +372,16 @@ func (service *WritingRunService) composeDocument(ctx context.Context, runID uin
 		OnEvent: func(event string, payload any) {
 			switch event {
 			case "tool_done":
-				if trace, ok := payload.(orchestrator.Trace); ok && trace.ToolName == writingKnowledgeSearchTool {
+				if trace, ok := payload.(orchestrator.Trace); ok && (trace.ToolName == writingKnowledgeSearchTool || trace.ToolName == writingEvidenceCompressionTool) {
 					_ = service.appendTrace(context.Background(), run.ID, round, trace)
 				}
 			case "tool_error":
-				if data, ok := payload.(map[string]any); ok && fmt.Sprint(data["tool_name"]) == writingKnowledgeSearchTool {
-					trace := orchestrator.Trace{ToolName: writingKnowledgeSearchTool, Kind: orchestrator.KindQuery, Status: "error", Error: fmt.Sprint(data["error"]), CreatedAt: time.Now()}
+				if data, ok := payload.(map[string]any); ok {
+					toolName := fmt.Sprint(data["tool_name"])
+					if toolName != writingKnowledgeSearchTool {
+						break
+					}
+					trace := orchestrator.Trace{ToolName: toolName, Kind: orchestrator.KindQuery, Status: "error", Error: fmt.Sprint(data["error"]), CreatedAt: time.Now()}
 					_ = service.appendTrace(context.Background(), run.ID, round, trace)
 				}
 			}
