@@ -42,7 +42,26 @@ func TestPrepareRequestUsesExplicitProviderTypeForReasoning(t *testing.T) {
 		t.Fatalf("prepareRequest() error = %v", err)
 	}
 	defer cancel()
+	if request.Reasoning != nil {
+		t.Fatalf("unsupported disabled reasoning = %#v, want omitted", request.Reasoning)
+	}
+
+	_, request, _, cancel, err = prepareRequest([]Message{{Role: "user", Content: "hello"}}, GenerateOptions{LLM: &deepSeek, Reasoning: explicit})
+	if err != nil {
+		t.Fatalf("prepareRequest() error = %v", err)
+	}
+	defer cancel()
 	if request.Reasoning != explicit {
-		t.Fatalf("explicit reasoning intent was not preserved")
+		t.Fatalf("supported explicit reasoning intent was not preserved")
+	}
+
+	enabled := &domain.Reasoning{Enabled: true}
+	_, request, _, cancel, err = prepareRequest([]Message{{Role: "user", Content: "hello"}}, GenerateOptions{LLM: &openAI, Reasoning: enabled})
+	if err != nil {
+		t.Fatalf("prepareRequest() error = %v", err)
+	}
+	defer cancel()
+	if request.Reasoning != enabled {
+		t.Fatalf("unsupported enabled reasoning intent was not preserved")
 	}
 }

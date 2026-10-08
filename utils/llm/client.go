@@ -208,6 +208,11 @@ func PrepareChatRequest(messages []Message, opt GenerateOptions) (domain.Provide
 		topK := opt.TopK
 		request.TopK = &topK
 	}
+	// Disabling an unsupported feature is a no-op. Keep an explicit request to
+	// enable it so the provider can report the unsupported capability.
+	if request.Reasoning != nil && !request.Reasoning.Enabled && !provider.Capabilities().Reasoning {
+		request.Reasoning = nil
+	}
 	// Tool selection does not benefit from visible reasoning and can delay calls.
 	if request.Reasoning == nil && len(request.Tools) > 0 && provider.Capabilities().Reasoning {
 		request.Reasoning = &domain.Reasoning{Enabled: false}
