@@ -148,6 +148,77 @@ flowchart TB
     Writing --> SQLite
 ```
 
+### 工具编排执行链
+
+下面这张小图对应当前受控写作工具的实际执行路径。`RunLedger` 是单次编排运行的内存账本；写作运行同时通过事件回调把工具轨迹、消息和证据写入数据库，并以 `WritingRun.CurrentStep` 作为可恢复检查点。
+
+<table>
+<tr>
+<td valign="top" width="68%">
+<pre><code>                    ┌────────── LLM ──────────┐
+                    │                         │
+                    ▼                         │
+              Tool Decision                   │
+                    │                         │
+                    ▼                         │
+        Tool Registry / Schema                │
+                    │                         │
+       Policy / Budget / Completion           │
+                    │                         │
+                    ▼                         │
+               Dispatcher                     │
+          ┌─────────┴──────────┐              │
+          │                    │              │
+    Query Cache          Mutation Bypass      │
+          │                    │              │
+    Singleflight               │              │
+          └─────────┬──────────┘              │
+                    ▼                         │
+                Fair Queue                    │
+                    ▼                         │
+                Worker Pool                   │
+                    ▼                         │
+                Rate Limiter                  │
+                    ▼                         │
+               Tool Handler                   │
+                    ▼                         │
+                  Trace ──────────────────────┘
+                    │
+                Run Ledger
+                    │
+              Event / DB Audit
+                    │
+        WritingRun.CurrentStep
+          Durable Checkpoint</code></pre>
+</td>
+<td valign="top" width="32%">
+<pre><code class="language-graphql">Query Tool
+    ↓
+cache lookup
+    ↓ miss
+singleflight dedup
+    ↓
+fair queue / worker pool
+    ↓
+rate limit / execute
+    ↓ success
+cache store
+
+Mutation Tool
+    ↓
+budget check
+    ↓
+no query cache
+    ↓
+fair queue / worker pool
+    ↓ success
+invalidate query cache</code></pre>
+</td>
+</tr>
+</table>
+
+查询缓存键由当前用户、工具名和参数共同生成；相同查询的并发未命中由 `singleflight` 合并。Mutation 工具不会读取或写入查询缓存，只有执行成功后才会清空查询缓存。所有实际工具调用仍需经过公平队列、工作协程池和全局限流器。
+
 主业务链路如下：
 
 ```text
