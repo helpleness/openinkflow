@@ -36,7 +36,7 @@ go run ./cmd/agent-eval score -results path/to/agent-results.jsonl -output path/
 
 `cmd/agent-retrieval-eval` 对 20 条检索任务调用真实本地 GGUF Embedding、SQLite、USearch 和 Rerank。它将合成片段写入独立的 SQLite `knowledge_chunks` 表，以 1024 维、余弦距离、F32、HNSW M=32、efConstruction=256、efSearch=64 保存 `.usearch`，关闭并重载两者后才开始查询。默认将每次运行的 `inkflow-eval.db` 与 `officialdoc_knowledge_chunks.usearch` 保留在被 Git 忽略的 `eval/.local/retrieval-*` 中，可用 `-fixture-root` 指定根目录；`-validation` 输出行数、数据库与索引向量逐维读回校验、自查询和精确余弦 Top10 对照。这些校验验证落盘与近似搜索，不能验证 Embedding 的语义质量。它尚未调用正式知识库的 FTS5 混合召回、权限过滤或 Chat LLM，因此 Tool Call、引用和 Task Success Rate 仍需完整 Agent 适配器。
 
-`-query-mode user|qwen-instruct|focused|topic` 控制检索查询。默认的 `user` 直接使用 `user_prompt`；`qwen-instruct` 按 Qwen3 模型示例在用户问题前加检索任务指令，仅作诊断；`focused` 使用主题和办理事项、时限、责任目标；`topic` 仅用于诊断主题词的向量匹配能力。四种模式不改变语料、gold 标注或索引参数，应写入不同的结果文件。Agent 的 `system_instruction`、gold 片段正文和片段 ID 均不会拼入查询向量。Qwen3 指令模式与 Agent 系统提示词无关，本次样本上也未提高召回。
+`-query-mode user|qwen-instruct|focused|topic` 控制检索查询。默认的 `user` 直接使用 `user_prompt`；`qwen-instruct` 按 Qwen3 模型示例在用户问题前加检索任务指令，仅作诊断；`focused` 使用主题和办理事项、时限、责任目标；`topic` 仅用于诊断主题词的向量匹配能力。四种模式不改变语料、gold 标注或索引参数，应写入不同的结果文件。Agent 的 `system_instruction`、gold 片段正文和片段 ID 均不会拼入查询向量。Qwen3 指令模式与 Agent 系统提示词无关；本次合成样本默认查询已达到 Recall@10 满分，无法用于判断指令对真实语料的增益。
 
 例如在已配置 CGO、USearch 和 CUDA DLL 路径的 Windows 环境运行：
 

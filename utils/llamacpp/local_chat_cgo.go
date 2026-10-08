@@ -308,7 +308,8 @@ func (e *LocalEngine) Embedding(text string) ([]float32, error) {
 	mem := C.llama_get_memory(e.ctx)
 	C.llama_memory_clear(mem, true)
 	C.llama_set_embeddings(e.ctx, true)
-	C.llama_set_causal_attn(e.ctx, false)
+	// Keep the model's attention mode. Qwen3 Embedding uses causal attention;
+	// forcing bidirectional attention changes its output vectors.
 
 	// 2. Tokenize
 	cPrompt := C.CString(text)
@@ -344,7 +345,8 @@ func (e *LocalEngine) Embedding(text string) ([]float32, error) {
 	defer C.llama_batch_free(batch)
 
 	for i := 0; i < int(n); i++ {
-		C.inkflow_batch_add(&batch, tokens[i], 0, 0, true)
+		// RoPE requires the actual token position, not position zero for every token.
+		C.inkflow_batch_add(&batch, tokens[i], C.llama_pos(i), 0, true)
 	}
 
 	if ret := C.llama_decode(e.ctx, batch); ret != 0 {

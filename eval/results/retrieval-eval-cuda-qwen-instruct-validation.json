@@ -14,23 +14,23 @@
   "exact_top10_total": 200,
   "exact_recall_at_k": {
     "1": {
-      "value": 0.025,
-      "numerator": 1,
+      "value": 0.5,
+      "numerator": 20,
       "denominator": 40
     },
     "10": {
-      "value": 0.3,
-      "numerator": 12,
+      "value": 1,
+      "numerator": 40,
       "denominator": 40
     },
     "3": {
-      "value": 0.1,
-      "numerator": 4,
+      "value": 1,
+      "numerator": 40,
       "denominator": 40
     },
     "5": {
-      "value": 0.15,
-      "numerator": 6,
+      "value": 1,
+      "numerator": 40,
       "denominator": 40
     }
   },

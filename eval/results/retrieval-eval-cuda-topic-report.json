@@ -5,45 +5,45 @@
   "missing_result_count": 100,
   "retrieval_recall_at_k": {
     "1": {
-      "value": 0.175,
-      "numerator": 7,
+      "value": 0.5,
+      "numerator": 20,
       "denominator": 40
     },
     "10": {
-      "value": 0.525,
-      "numerator": 21,
+      "value": 1,
+      "numerator": 40,
       "denominator": 40
     },
     "3": {
-      "value": 0.325,
-      "numerator": 13,
+      "value": 1,
+      "numerator": 40,
       "denominator": 40
     },
     "5": {
-      "value": 0.4,
-      "numerator": 16,
+      "value": 1,
+      "numerator": 40,
       "denominator": 40
     }
   },
   "rerank_hit_rate_at_k": {
     "1": {
-      "value": 0.65,
-      "numerator": 13,
+      "value": 0.9,
+      "numerator": 18,
       "denominator": 20
     },
     "10": {
-      "value": 0.8,
-      "numerator": 16,
+      "value": 1,
+      "numerator": 20,
       "denominator": 20
     },
     "3": {
-      "value": 0.8,
-      "numerator": 16,
+      "value": 1,
+      "numerator": 20,
       "denominator": 20
     },
     "5": {
-      "value": 0.8,
-      "numerator": 16,
+      "value": 1,
+      "numerator": 20,
       "denominator": 20
     }
   },
