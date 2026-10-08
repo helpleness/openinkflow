@@ -152,70 +152,44 @@ flowchart TB
 
 下面这张小图对应当前受控写作工具的实际执行路径。`RunLedger` 是单次编排运行的内存账本；写作运行同时通过事件回调把工具轨迹、消息和证据写入数据库，并以 `WritingRun.CurrentStep` 作为可恢复检查点。
 
-<table>
-<tr>
-<td valign="top" width="68%">
-<pre><code>                    ┌────────── LLM ──────────┐
-                    │                         │
-                    ▼                         │
-              Tool Decision                   │
-                    │                         │
-                    ▼                         │
-        Tool Registry / Schema                │
-                    │                         │
-       Policy / Budget / Completion           │
-                    │                         │
-                    ▼                         │
-               Dispatcher                     │
-          ┌─────────┴──────────┐              │
-          │                    │              │
-    Query Cache          Mutation Bypass      │
-          │                    │              │
-    Singleflight               │              │
-          └─────────┬──────────┘              │
-                    ▼                         │
-                Fair Queue                    │
-                    ▼                         │
-                Worker Pool                   │
-                    ▼                         │
-                Rate Limiter                  │
-                    ▼                         │
-               Tool Handler                   │
-                    ▼                         │
-                  Trace ──────────────────────┘
-                    │
-                Run Ledger
-                    │
-              Event / DB Audit
-                    │
-        WritingRun.CurrentStep
-          Durable Checkpoint</code></pre>
-</td>
-<td valign="top" width="32%">
-<pre><code class="language-graphql">Query Tool
-    ↓
-cache lookup
-    ↓ miss
-singleflight dedup
-    ↓
-fair queue / worker pool
-    ↓
-rate limit / execute
-    ↓ success
-cache store
+```mermaid
+flowchart TB
+    LLM[LLM] --> Decision[模型工具决策]
+    Decision --> Registry[Tool Registry / Schema]
+    Registry --> Policy[策略 · 预算 · 完成条件]
+    Policy --> Kind
 
-Mutation Tool
-    ↓
-budget check
-    ↓
-no query cache
-    ↓
-fair queue / worker pool
-    ↓ success
-invalidate query cache</code></pre>
-</td>
-</tr>
-</table>
+    subgraph Dispatch[Dispatcher · 调度与执行]
+        direction TB
+        Kind{工具类型}
+
+        Kind -->|Query| Cache{查询结果缓存}
+        Cache -->|命中| CachedTrace[缓存结果轨迹]
+        Cache -->|未命中| Flight[Singleflight<br/>合并相同并发查询]
+
+        Kind -->|Mutation / LLM| Bypass[绕过查询缓存]
+        Flight --> Queue[Fair Queue<br/>按用户公平排队]
+        Bypass --> Queue
+        Queue --> Pool[Worker Pool<br/>限制并发执行数]
+        Pool --> Limiter[Rate Limiter<br/>限制执行速率]
+        Limiter --> Handler[Tool Handler]
+
+        Handler -->|Query 成功| Store[写入查询缓存]
+        Store --> ExecTrace[工具调用轨迹]
+        Handler -->|Mutation 成功| Invalidate[清空查询缓存]
+        Invalidate --> ExecTrace
+        Handler -->|LLM 工具或执行失败| ExecTrace
+    end
+
+    CachedTrace --> Ledger[Run Ledger<br/>单轮运行账本]
+    ExecTrace --> Ledger
+    Ledger -->|工具结果进入下一轮上下文| LLM
+
+    ExecTrace --> Event[OnEvent 事件回调]
+    Event --> Audit[(工具轨迹与消息<br/>WritingRunToolTrace / Message)]
+    Handler --> Business[(冻结证据 · 生成正文 · 固化版本)]
+    Business --> Checkpoint[WritingRun.CurrentStep<br/>持久化检查点]
+```
 
 查询缓存键由当前用户、工具名和参数共同生成；相同查询的并发未命中由 `singleflight` 合并。Mutation 工具不会读取或写入查询缓存，只有执行成功后才会清空查询缓存。所有实际工具调用仍需经过公平队列、工作协程池和全局限流器。
 
