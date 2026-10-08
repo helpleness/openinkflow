@@ -329,19 +329,26 @@ func (service *WritingRunService) composeDocument(ctx context.Context, runID uin
 		return nil, err
 	}
 	registry := orchestrator.NewRegistry()
+	selection := newWritingEvidenceSelection(len(evidence))
 	if remainingSearchCalls > 0 {
-		if err := service.registerKnowledgeSearchTool(registry, run.ID, remainingSearchCalls); err != nil {
+		if err := service.registerKnowledgeSearchTool(registry, run.ID, remainingSearchCalls, selection); err != nil {
+			return nil, err
+		}
+		if err := service.registerEvidenceRemovalTool(registry, run.ID, selection); err != nil {
 			return nil, err
 		}
 	}
 	systemPrompt, userPrompt := controlledWritingPrompt(run.Stage, task, template, evidence)
-	systemPrompt += "\n在生成过程中，如果现有证据不足以完成任务，可以调用只读 knowledge.search。只能把初始证据和该工具返回并带有 [E编号] 的内容作为事实依据。服务端会在工具上下文过长时筛除较早结果中不需要的整条证据；保留证据的原文和 [E编号] 不变。"
+	systemPrompt += "\n在生成过程中，如果现有证据不足以完成任务，可以调用只读 knowledge.search。只能把初始证据和该工具返回并带有 [E编号] 的内容作为事实依据。knowledge.search 返回 removable_citations；如果某些新增证据明显无关或重复，你可以单独调用 writing.compress_evidence，传入其中要移除的编号。该工具不请求另一个模型，只从后续上下文删除对应的整条证据；有疑问就保留。"
 	if remainingSearchCalls > 0 {
 		userPrompt += fmt.Sprintf("\n你还可以调用 knowledge.search 最多 %d 次。query 可使用需要连续出现的完整短语，也可使用空格分隔的多个关键词，检索器会同时处理这两种方式。多跳检索时，沿与用户目标直接相关且已被证据确认的关系链继续，并优先加入上一轮新发现的实体或编号；不要转向结果中的无关并列对象。证据足够后停止检索并直接生成最终内容，不要重复相同查询。\n", remainingSearchCalls)
 	} else {
 		userPrompt += "\n本次运行的 knowledge.search 调用额度已经用完，请仅根据当前冻结证据生成内容；证据不足时明确标记待补充。\n"
 	}
 	maxToolCalls := remainingSearchCalls
+	if remainingSearchCalls > 0 {
+		maxToolCalls += writingEvidenceCompressionMaxCalls
+	}
 	if maxToolCalls < 1 {
 		maxToolCalls = 1
 	}
@@ -353,15 +360,7 @@ func (service *WritingRunService) composeDocument(ctx context.Context, runID uin
 		MaxToolCalls:         maxToolCalls,
 		MaxLLMToolCalls:      1,
 		MaxMutationToolCalls: 1,
-		// Full search results stay in the model conversation until the context
-		// threshold triggers private evidence selection. Only whole unwanted
-		// records are removed; retained evidence is never rewritten.
-		ContextCompactionMaxRunes:       writingEvidenceContextMaxRunes,
-		ContextCompactionTool:           writingEvidenceCompressionTool,
-		ContextCompactionIncludeCurrent: true,
-		ContextCompactor: func(toolCtx context.Context, items []orchestrator.ContextItem) (string, error) {
-			return service.compressWritingToolContext(toolCtx, run.ID, len(evidence), items)
-		},
+		ContextRewriteTool:   writingEvidenceCompressionTool,
 		ReturnAfterToolCalls: false,
 		SynthesizeAfterTools: false,
 		LLM: &llmutil.GenerateOptions{

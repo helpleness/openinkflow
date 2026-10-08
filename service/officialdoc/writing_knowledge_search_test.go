@@ -11,7 +11,6 @@ import (
 	"InkFlow/global"
 	model "InkFlow/model/officialdoc"
 	response "InkFlow/model/officialdoc/response"
-	"InkFlow/utils/toolchain/orchestrator"
 
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
@@ -112,14 +111,16 @@ func TestControlledWritingPromptIncludesAllFrozenEvidence(t *testing.T) {
 }
 
 func TestWritingEvidenceSelectionRemovesOnlyChosenRecords(t *testing.T) {
-	items := []orchestrator.ContextItem{
-		{ToolName: writingKnowledgeSearchTool, Output: `{"items":[{"citation":"[E1]","document":"甲","content":"必须保留的完整事实和数字 123"},{"citation":"[E2]","document":"乙","content":"无关材料"}]}`},
-		{ToolName: writingKnowledgeSearchTool, Output: `{"items":[{"citation":"[E1]","document":"重复来源","content":"不应覆盖原文"},{"citation":"[E3]","document":"丙","content":"后续检索的完整事实"}]}`},
-	}
-	candidates, err := writingEvidenceCandidates(items, 0)
-	if err != nil {
-		t.Fatalf("collect evidence: %v", err)
-	}
+	selection := newWritingEvidenceSelection(0)
+	selection.observe([]writingKnowledgeSearchEvidence{
+		{Citation: "[E1]", Document: "甲", Content: "必须保留的完整事实和数字 123"},
+		{Citation: "[E2]", Document: "乙", Content: "无关材料"},
+	})
+	selection.observe([]writingKnowledgeSearchEvidence{
+		{Citation: "[E1]", Document: "重复来源", Content: "不应覆盖原文"},
+		{Citation: "[E3]", Document: "丙", Content: "后续检索的完整事实"},
+	})
+	candidates := selection.candidates
 	if len(candidates) != 3 || candidates[0].Content != "必须保留的完整事实和数字 123" {
 		t.Fatalf("candidates lost original evidence: %#v", candidates)
 	}
@@ -151,9 +152,11 @@ func TestWritingEvidenceSelectionRemovesOnlyChosenRecords(t *testing.T) {
 	if len(reviewed.RemovedCitations) != 1 || reviewed.RemovedCitations[0] != "[E2]" || len(reviewed.IgnoredCitations) != 1 || reviewed.IgnoredCitations[0] != "[E99]" || len(reviewed.Items) != 2 {
 		t.Fatalf("unknown citation affected retained evidence: %#v", reviewed)
 	}
-	pinned, err := writingEvidenceCandidates(items, 2)
-	if err != nil || len(pinned) != 1 || pinned[0].Citation != "[E3]" {
-		t.Fatalf("initial prompt evidence was offered for removal: %#v, %v", pinned, err)
+	pinnedSelection := newWritingEvidenceSelection(2)
+	pinnedSelection.observe(candidates)
+	pinned := pinnedSelection.candidates
+	if len(pinned) != 1 || pinned[0].Citation != "[E3]" {
+		t.Fatalf("initial prompt evidence was offered for removal: %#v", pinned)
 	}
 	withPinned, err := pruneWritingEvidenceContext(pinned, `{"drop":["[E1]","[E2]"]}`)
 	if err != nil {
@@ -165,6 +168,14 @@ func TestWritingEvidenceSelectionRemovesOnlyChosenRecords(t *testing.T) {
 	}
 	if _, err := pruneWritingEvidenceContext(candidates, `{"drop":[]}`); err != nil {
 		t.Fatalf("keeping all evidence should be valid: %v", err)
+	}
+	removed, err := selection.remove(json.RawMessage(`{"drop":["[E2]"]}`))
+	if err != nil || len(removed.Items) != 2 {
+		t.Fatalf("apply removal: %#v, %v", removed, err)
+	}
+	selection.observe([]writingKnowledgeSearchEvidence{{Citation: "[E2]", Content: "又返回的旧证据"}})
+	if len(selection.candidates) != 2 {
+		t.Fatalf("removed evidence re-entered context: %#v", selection.candidates)
 	}
 }
 

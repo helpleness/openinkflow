@@ -73,6 +73,9 @@ type Tool struct {
 	// MaxAttemptsPerRun 限制一个工具在单轮编排内的总调用尝试次数，包括参数错误和执行失败。
 	// 零值不限制；适合需要严格控制外部请求次数或费用的查询工具。
 	MaxAttemptsPerRun int
+	// DisableCache prevents stateful read-only context tools from reusing an
+	// earlier result after the visible evidence has changed.
+	DisableCache bool
 	// TerminalOnSuccess 让受控工作流在该工具成功后立即结束当前编排轮次。
 	// 它适用于“检索 → 生成 → 固化版本”这类由服务端状态机决定下一步的流程，
 	// 避免模型在已完成当前步骤后继续调用无关工具。

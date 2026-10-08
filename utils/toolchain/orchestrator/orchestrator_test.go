@@ -425,6 +425,45 @@ func TestEvidenceSelectionCanRemoveCurrentBatchResult(t *testing.T) {
 	}
 }
 
+func TestModelCalledContextRewriteRemovesPriorToolEvidence(t *testing.T) {
+	registry := NewRegistry()
+	if err := registry.Register(Tool{
+		Name: "knowledge.search", Kind: KindQuery, ContextMaxRunes: -1,
+		Handler: func(context.Context, json.RawMessage) (any, error) {
+			return map[string]any{"items": []map[string]string{{"citation": "[E2]", "content": "应删除的证据正文"}}}, nil
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := registry.Register(Tool{
+		Name: "writing.compress_evidence", Kind: KindQuery, ContextMaxRunes: -1, DisableCache: true,
+		Handler: func(context.Context, json.RawMessage) (any, error) {
+			return map[string]any{"removed_citations": []string{"[E2]"}, "items": []map[string]string{{"citation": "[E1]", "content": "保留的完整证据"}}}, nil
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	state := testRunState(t, registry, RunOptions{ContextRewriteTool: "writing.compress_evidence"}, nil)
+	calls := []domainllm.ToolCall{
+		{ID: "search-call", Name: protocolToolName("knowledge.search"), Arguments: json.RawMessage(`{}`)},
+		{ID: "compress-call", Name: protocolToolName("writing.compress_evidence"), Arguments: json.RawMessage(`{"drop":["[E2]"]}`)},
+	}
+	state.messages = append(state.messages, domainllm.Message{Role: "assistant", ToolCalls: calls})
+	if _, err := state.executeToolCallBatch(calls); err != nil {
+		t.Fatalf("execute tool calls: %v", err)
+	}
+	if len(state.ledger.Traces) != 2 || !state.ledger.Traces[0].contextArchived || state.ledger.Traces[1].contextArchived {
+		t.Fatalf("tool context was not rewritten: %#v", state.ledger.Traces)
+	}
+	joined := ""
+	for _, message := range state.messages {
+		joined += message.Content
+	}
+	if strings.Contains(joined, "应删除的证据正文") || !strings.Contains(joined, "保留的完整证据") {
+		t.Fatalf("rewritten model context is wrong: %s", joined)
+	}
+}
+
 func TestNegativeToolContextLimitKeepsCompleteResult(t *testing.T) {
 	registry := NewRegistry()
 	registerTestTool(t, registry, Tool{

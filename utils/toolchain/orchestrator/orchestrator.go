@@ -38,8 +38,11 @@ type RunOptions struct {
 	ContextCompactor                ContextCompactor
 	ContextCompactionTool           string
 	ContextCompactionIncludeCurrent bool
-	OnEvent                         func(event string, payload any)
-	LLM                             *llmutil.GenerateOptions
+	// ContextRewriteTool replaces earlier tool-result context after a successful
+	// model-initiated call to this registered tool.
+	ContextRewriteTool string
+	OnEvent            func(event string, payload any)
+	LLM                *llmutil.GenerateOptions
 }
 
 // ContextItem is one complete, still-visible tool result passed to an internal
@@ -131,6 +134,7 @@ type RunConfig struct {
 	ContextCompactor                ContextCompactor
 	ContextCompactionTool           string
 	ContextCompactionIncludeCurrent bool
+	ContextRewriteTool              string
 	OnEvent                         func(event string, payload any)
 	ModelContext                    context.Context
 	ModelTimeout                    time.Duration
@@ -164,6 +168,7 @@ func normalizeRunOptions(options RunOptions) RunConfig {
 		ContextCompactor:                options.ContextCompactor,
 		ContextCompactionTool:           strings.TrimSpace(options.ContextCompactionTool),
 		ContextCompactionIncludeCurrent: options.ContextCompactionIncludeCurrent,
+		ContextRewriteTool:              strings.TrimSpace(options.ContextRewriteTool),
 		OnEvent:                         options.OnEvent,
 	}
 }

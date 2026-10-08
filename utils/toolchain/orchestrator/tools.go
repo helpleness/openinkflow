@@ -39,6 +39,7 @@ type callExecution struct {
 func (state *runState) executeToolCallBatch(calls []domainllm.ToolCall) (toolCallBatchResult, error) {
 	batch := toolCallBatchResult{}
 	limitEventSent := false
+	rewriteTraceIndex := -1
 	for index, call := range calls {
 		prepared, err := state.prepareToolCall(call, &limitEventSent)
 		if err != nil {
@@ -65,8 +66,25 @@ func (state *runState) executeToolCallBatch(calls []domainllm.ToolCall) (toolCal
 			state.messages = appendSkippedToolResults(state.messages, calls[index+1:], prepared.call.name, execution.recoverableError)
 			break
 		}
+		if prepared.call.name == state.config.ContextRewriteTool {
+			rewriteTraceIndex = len(state.ledger.Traces) - 1
+		}
+	}
+	if rewriteTraceIndex >= 0 {
+		state.rewriteToolContext(rewriteTraceIndex)
 	}
 	return batch, nil
+}
+
+func (state *runState) rewriteToolContext(rewriteTraceIndex int) {
+	for index := 0; index < rewriteTraceIndex; index++ {
+		trace := &state.ledger.Traces[index]
+		if trace.Status == "ok" && !trace.contextArchived && (trace.Kind == KindQuery || trace.Kind == KindLLM) {
+			trace.contextArchived = true
+		}
+	}
+	state.messages = isolatedToolRoundMessages(state.originalMessages, state.ledger.Traces, state.config)
+	state.messages = append(state.messages, currentToolResultsMessage(state.ledger.Traces, rewriteTraceIndex))
 }
 
 func (state *runState) prepareToolCall(call domainllm.ToolCall, limitEventSent *bool) (callPreparation, error) {
@@ -98,7 +116,7 @@ func (state *runState) prepareToolCall(call domainllm.ToolCall, limitEventSent *
 	}
 
 	queryKey := ""
-	if tool.Kind == KindQuery {
+	if tool.Kind == KindQuery && !tool.DisableCache {
 		queryKey = toolQueryCacheKey(state.ledger.MutationVersion, toolName, eventInput)
 		if result, reused, err := state.reuseQueryResult(call, toolName, queryKey); reused || err != nil {
 			return callPreparation{result: result}, err
@@ -225,7 +243,7 @@ func (state *runState) recordSuccessfulTool(prepared preparedToolCall, trace Tra
 	if prepared.tool.RunOncePerRun {
 		state.ledger.SuccessfulRunOnce[prepared.name] = trace
 	}
-	if prepared.tool.Kind == KindQuery && prepared.queryKey != "" {
+	if prepared.tool.Kind == KindQuery && !prepared.tool.DisableCache && prepared.queryKey != "" {
 		state.ledger.SuccessfulQueries[prepared.queryKey] = trace
 	}
 	if prepared.tool.Kind == KindMutation {
