@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"InkFlow/global"
+	domainllm "InkFlow/internal/ai/llm"
 	model "InkFlow/model/officialdoc"
 	request "InkFlow/model/officialdoc/request"
 	response "InkFlow/model/officialdoc/response"
@@ -409,6 +410,7 @@ func (service *WritingRunService) composeDocument(ctx context.Context, runID uin
 		}, llmutil.GenerateOptions{
 			Context: ctx, LLM: &llmConfig, Model: llmConfig.ModelDefault,
 			Temperature: llmConfig.Temperature, MaxTokens: 8192,
+			Reasoning: &domainllm.Reasoning{Enabled: false},
 		})
 		if err != nil {
 			return nil, fmt.Errorf("写作模型未生成正文，重新生成失败: %w", err)

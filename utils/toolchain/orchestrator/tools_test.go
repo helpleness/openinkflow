@@ -43,6 +43,29 @@ func TestToolLifecycleUsesExecutorAndRecordsLedger(t *testing.T) {
 	}
 }
 
+func TestStrictNoArgumentToolIgnoresMalformedModelJSON(t *testing.T) {
+	registry := NewRegistry()
+	calls := 0
+	registerTestTool(t, registry, Tool{
+		Name: "writing.commit_version",
+		Parameters: map[string]any{
+			"type": "object", "properties": map[string]any{}, "additionalProperties": false,
+		},
+		Handler: func(_ context.Context, args json.RawMessage) (any, error) {
+			calls++
+			if string(args) != "{}" {
+				t.Fatalf("arguments=%s", args)
+			}
+			return "committed", nil
+		},
+	})
+	state := testRunState(t, registry, RunOptions{}, nil)
+	_, err := state.executeToolCallBatch([]domainllm.ToolCall{{ID: "commit-1", Name: "writing_commit_version", Arguments: json.RawMessage(`{"broken":`)}})
+	if err != nil || calls != 1 || len(state.ledger.Traces) != 1 || state.ledger.Traces[0].Status != "ok" {
+		t.Fatalf("calls=%d traces=%+v err=%v", calls, state.ledger.Traces, err)
+	}
+}
+
 func TestInvalidArgumentsAndRecoverableErrorsStopAfterFiveAttempts(t *testing.T) {
 	for _, invalid := range []bool{false, true} {
 		t.Run(fmt.Sprint(invalid), func(t *testing.T) {

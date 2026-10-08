@@ -82,7 +82,13 @@ func (state *runState) prepareToolCall(call domainllm.ToolCall, limitEventSent *
 	}
 	state.ledger.AttemptedCalls[toolName]++
 
-	arguments, eventInput, err := decodeToolArguments(string(call.Arguments))
+	argumentText := string(call.Arguments)
+	if strictNoArgumentTool(tool) {
+		// The server chose a tool with an empty schema. Model-generated JSON has
+		// no useful parameters and must not block this deterministic step.
+		argumentText = "{}"
+	}
+	arguments, eventInput, err := decodeToolArguments(argumentText)
 	if err != nil {
 		return state.handleInvalidArguments(call, toolName, err)
 	}
@@ -248,6 +254,30 @@ func decodeToolArguments(arguments string) (json.RawMessage, any, error) {
 		return nil, nil, fmt.Errorf("invalid tool arguments JSON: %w", err)
 	}
 	return raw, input, nil
+}
+
+func strictNoArgumentTool(tool Tool) bool {
+	if tool.Parameters["type"] != "object" || tool.Parameters["additionalProperties"] != false {
+		return false
+	}
+	properties, ok := tool.Parameters["properties"].(map[string]any)
+	if !ok || len(properties) != 0 {
+		return false
+	}
+	switch required := tool.Parameters["required"].(type) {
+	case nil:
+	case []string:
+		if len(required) != 0 {
+			return false
+		}
+	case []any:
+		if len(required) != 0 {
+			return false
+		}
+	default:
+		return false
+	}
+	return true
 }
 
 // toolResultMessage creates a provider-neutral tool result message and keeps
