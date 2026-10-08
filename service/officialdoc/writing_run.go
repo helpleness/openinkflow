@@ -5,7 +5,6 @@ import (
 	"InkFlow/utils/toolchain/orchestrator"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -336,7 +335,7 @@ func (service *WritingRunService) composeDocument(ctx context.Context, runID uin
 		}
 	}
 	systemPrompt, userPrompt := controlledWritingPrompt(run.Stage, task, template, evidence)
-	systemPrompt += "\n在生成过程中，如果现有证据不足以完成任务，可以调用只读 knowledge.search。只能把初始证据和该工具返回并带有 [E编号] 的内容作为事实依据。服务端会在工具上下文过长时自动压缩较早结果；压缩摘要中的具体事实同样必须保留 [E编号]。"
+	systemPrompt += "\n在生成过程中，如果现有证据不足以完成任务，可以调用只读 knowledge.search。只能把初始证据和该工具返回并带有 [E编号] 的内容作为事实依据。服务端会在工具上下文过长时筛除较早结果中不需要的整条证据；保留证据的原文和 [E编号] 不变。"
 	if remainingSearchCalls > 0 {
 		userPrompt += fmt.Sprintf("\n你还可以调用 knowledge.search 最多 %d 次。query 可使用需要连续出现的完整短语，也可使用空格分隔的多个关键词，检索器会同时处理这两种方式。多跳检索时，沿与用户目标直接相关且已被证据确认的关系链继续，并优先加入上一轮新发现的实体或编号；不要转向结果中的无关并列对象。证据足够后停止检索并直接生成最终内容，不要重复相同查询。\n", remainingSearchCalls)
 	} else {
@@ -354,13 +353,14 @@ func (service *WritingRunService) composeDocument(ctx context.Context, runID uin
 		MaxToolCalls:         maxToolCalls,
 		MaxLLMToolCalls:      1,
 		MaxMutationToolCalls: 1,
-		// Full search results stay in the model conversation. The runtime calls
-		// the private compactor only after the aggregate tool context crosses the
-		// threshold; it is intentionally absent from the model's tool schema.
-		ContextCompactionMaxRunes: writingEvidenceContextMaxRunes,
-		ContextCompactionTool:     writingEvidenceCompressionTool,
+		// Full search results stay in the model conversation until the context
+		// threshold triggers private evidence selection. Only whole unwanted
+		// records are removed; retained evidence is never rewritten.
+		ContextCompactionMaxRunes:       writingEvidenceContextMaxRunes,
+		ContextCompactionTool:           writingEvidenceCompressionTool,
+		ContextCompactionIncludeCurrent: true,
 		ContextCompactor: func(toolCtx context.Context, items []orchestrator.ContextItem) (string, error) {
-			return service.compressWritingToolContext(toolCtx, run.ID, items)
+			return service.compressWritingToolContext(toolCtx, run.ID, len(evidence), items)
 		},
 		ReturnAfterToolCalls: false,
 		SynthesizeAfterTools: false,
@@ -390,20 +390,14 @@ func (service *WritingRunService) composeDocument(ctx context.Context, runID uin
 		},
 	})
 	if err != nil {
-		var outputLimit *domainllm.OutputLimitError
-		if !errors.As(err, &outputLimit) {
-			return nil, fmt.Errorf("写作模型请求失败: %w", err)
-		}
-		// A truncated compaction or tool-selection response is not a draft.
-		// Retry from the deduplicated, frozen evidence without tools instead.
-		_ = service.appendMessage(ctx, run.ID, round, "system", "", "模型编排或工具上下文压缩达到输出上限，正在使用已冻结的完整证据直接生成正文。")
+		return nil, fmt.Errorf("写作模型请求失败: %w", err)
 	}
 	content := ""
-	if err == nil && result != nil && result.MessageFromModel {
+	if result != nil && result.MessageFromModel {
 		content = strings.TrimSpace(result.Message)
 	} else {
-		// Neither a trace summary nor a truncated response is a draft. Retry
-		// once without tools using all evidence frozen during this run.
+		// A tool trace summary is useful for the run ledger, but is not a draft.
+		// Retry once without tools using all evidence frozen during this run.
 		_ = service.appendMessage(ctx, run.ID, round, "system", "", "写作模型未返回可保存的正文，正在使用已冻结证据重试一次无工具生成。")
 		latestEvidence, evidenceErr := service.runEvidence(ctx, run.ID)
 		if evidenceErr != nil {

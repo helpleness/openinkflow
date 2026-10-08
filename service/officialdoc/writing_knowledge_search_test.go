@@ -2,6 +2,7 @@ package officialdoc
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
@@ -10,6 +11,7 @@ import (
 	"InkFlow/global"
 	model "InkFlow/model/officialdoc"
 	response "InkFlow/model/officialdoc/response"
+	"InkFlow/utils/toolchain/orchestrator"
 
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
@@ -106,6 +108,44 @@ func TestControlledWritingPromptIncludesAllFrozenEvidence(t *testing.T) {
 	}
 	if strings.Contains(prompt, "writing.compress_evidence") {
 		t.Fatalf("internal compactor leaked into the model prompt: %s", prompt)
+	}
+}
+
+func TestWritingEvidenceSelectionRemovesOnlyChosenRecords(t *testing.T) {
+	items := []orchestrator.ContextItem{
+		{ToolName: writingKnowledgeSearchTool, Output: `{"items":[{"citation":"[E1]","document":"甲","content":"必须保留的完整事实和数字 123"},{"citation":"[E2]","document":"乙","content":"无关材料"}]}`},
+		{ToolName: writingKnowledgeSearchTool, Output: `{"items":[{"citation":"[E1]","document":"重复来源","content":"不应覆盖原文"},{"citation":"[E3]","document":"丙","content":"后续检索的完整事实"}]}`},
+	}
+	candidates, err := writingEvidenceCandidates(items, 0)
+	if err != nil {
+		t.Fatalf("collect evidence: %v", err)
+	}
+	if len(candidates) != 3 || candidates[0].Content != "必须保留的完整事实和数字 123" {
+		t.Fatalf("candidates lost original evidence: %#v", candidates)
+	}
+	context, err := pruneWritingEvidenceContext(candidates, `{"drop":["E2"]}`)
+	if err != nil {
+		t.Fatalf("prune evidence: %v", err)
+	}
+	var retained writingPrunedEvidenceContext
+	if err := json.Unmarshal([]byte(context), &retained); err != nil {
+		t.Fatalf("decode retained evidence: %v", err)
+	}
+	if len(retained.Items) != 2 || retained.Items[0].Citation != "[E1]" || retained.Items[1].Citation != "[E3]" || retained.Items[0].Content != candidates[0].Content || retained.Items[1].Content != candidates[2].Content {
+		t.Fatalf("retained evidence was altered: %#v", retained)
+	}
+	if strings.Contains(context, "无关材料") || len(retained.RemovedCitations) != 1 || retained.RemovedCitations[0] != "[E2]" {
+		t.Fatalf("removed evidence leaked into context: %s", context)
+	}
+	if _, err := pruneWritingEvidenceContext(candidates, `{"drop":["[E99]"]}`); err == nil {
+		t.Fatal("unknown citation was accepted")
+	}
+	if _, err := pruneWritingEvidenceContext(candidates, `{"drop":[]}`); err != nil {
+		t.Fatalf("keeping all evidence should be valid: %v", err)
+	}
+	pinned, err := writingEvidenceCandidates(items, 2)
+	if err != nil || len(pinned) != 1 || pinned[0].Citation != "[E3]" {
+		t.Fatalf("initial prompt evidence was offered for removal: %#v, %v", pinned, err)
 	}
 }
 

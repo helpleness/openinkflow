@@ -292,7 +292,10 @@ func isolatedToolProgressContext(traces []Trace, maxRunes int) string {
 	progress.WriteString("执行账本（成功项表示已完成，不得重放）：\n")
 	for index, trace := range traces {
 		status := "成功"
-		detail := utils.TruncateRunes(trace.OutputSummary, 180)
+		detail := ""
+		if !trace.contextArchived {
+			detail = utils.TruncateRunes(trace.OutputSummary, 180)
+		}
 		if trace.Status == "error" {
 			status = "失败"
 			detail = utils.TruncateRunes(trace.Error, 180)

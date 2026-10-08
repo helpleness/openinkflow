@@ -34,11 +34,12 @@ type RunOptions struct {
 	// ContextCompactor is an internal, service-supplied hook. It is never
 	// registered as an LLM tool: the runtime invokes it only once the model
 	// context crosses ContextCompactionMaxRunes.
-	ContextCompactionMaxRunes int
-	ContextCompactor          ContextCompactor
-	ContextCompactionTool     string
-	OnEvent                   func(event string, payload any)
-	LLM                       *llmutil.GenerateOptions
+	ContextCompactionMaxRunes       int
+	ContextCompactor                ContextCompactor
+	ContextCompactionTool           string
+	ContextCompactionIncludeCurrent bool
+	OnEvent                         func(event string, payload any)
+	LLM                             *llmutil.GenerateOptions
 }
 
 // ContextItem is one complete, still-visible tool result passed to an internal
@@ -121,17 +122,18 @@ type SynthesisPolicy struct{ Enabled, Always bool }
 
 // RunConfig is the normalized per-run configuration; callers keep using RunOptions.
 type RunConfig struct {
-	UserName                  string
-	Budget                    Budget
-	Completion                CompletionPolicy
-	Synthesis                 SynthesisPolicy
-	ReturnAfterToolCalls      bool
-	ContextCompactionMaxRunes int
-	ContextCompactor          ContextCompactor
-	ContextCompactionTool     string
-	OnEvent                   func(event string, payload any)
-	ModelContext              context.Context
-	ModelTimeout              time.Duration
+	UserName                        string
+	Budget                          Budget
+	Completion                      CompletionPolicy
+	Synthesis                       SynthesisPolicy
+	ReturnAfterToolCalls            bool
+	ContextCompactionMaxRunes       int
+	ContextCompactor                ContextCompactor
+	ContextCompactionTool           string
+	ContextCompactionIncludeCurrent bool
+	OnEvent                         func(event string, payload any)
+	ModelContext                    context.Context
+	ModelTimeout                    time.Duration
 }
 
 func normalizeRunOptions(options RunOptions) RunConfig {
@@ -153,15 +155,16 @@ func normalizeRunOptions(options RunOptions) RunConfig {
 		}
 	}
 	return RunConfig{
-		UserName:                  options.UserName,
-		Budget:                    Budget{MaxRounds: options.MaxToolCalls, MaxModelRetries: options.MaxLLMRetries, MaxLLMTools: options.MaxLLMToolCalls, MaxMutations: options.MaxMutationToolCalls, MaxIsolatedRounds: options.MaxIsolatedToolRounds},
-		Completion:                CompletionPolicy{RequiredAll: required, RequiredAny: append([]string(nil), options.RequiredAnyTools...), RequiredCounts: counts, IncompleteMessage: options.IncompleteMessage},
-		Synthesis:                 SynthesisPolicy{Enabled: options.SynthesizeAfterTools, Always: options.AlwaysSynthesizeAfterTools},
-		ReturnAfterToolCalls:      options.ReturnAfterToolCalls,
-		ContextCompactionMaxRunes: options.ContextCompactionMaxRunes,
-		ContextCompactor:          options.ContextCompactor,
-		ContextCompactionTool:     strings.TrimSpace(options.ContextCompactionTool),
-		OnEvent:                   options.OnEvent,
+		UserName:                        options.UserName,
+		Budget:                          Budget{MaxRounds: options.MaxToolCalls, MaxModelRetries: options.MaxLLMRetries, MaxLLMTools: options.MaxLLMToolCalls, MaxMutations: options.MaxMutationToolCalls, MaxIsolatedRounds: options.MaxIsolatedToolRounds},
+		Completion:                      CompletionPolicy{RequiredAll: required, RequiredAny: append([]string(nil), options.RequiredAnyTools...), RequiredCounts: counts, IncompleteMessage: options.IncompleteMessage},
+		Synthesis:                       SynthesisPolicy{Enabled: options.SynthesizeAfterTools, Always: options.AlwaysSynthesizeAfterTools},
+		ReturnAfterToolCalls:            options.ReturnAfterToolCalls,
+		ContextCompactionMaxRunes:       options.ContextCompactionMaxRunes,
+		ContextCompactor:                options.ContextCompactor,
+		ContextCompactionTool:           strings.TrimSpace(options.ContextCompactionTool),
+		ContextCompactionIncludeCurrent: options.ContextCompactionIncludeCurrent,
+		OnEvent:                         options.OnEvent,
 	}
 }
 
@@ -296,14 +299,18 @@ func (state *runState) finishIsolatedRound(step int) (*RunResult, bool, error) {
 }
 
 func (state *runState) compactToolContextIfNeeded(retainTraceStart int) error {
-	if state.config.ContextCompactor == nil || state.config.ContextCompactionMaxRunes <= 0 || retainTraceStart <= 0 || messageRunes(state.messages) <= state.config.ContextCompactionMaxRunes {
+	if state.config.ContextCompactor == nil || state.config.ContextCompactionMaxRunes <= 0 || (retainTraceStart <= 0 && !state.config.ContextCompactionIncludeCurrent) || messageRunes(state.messages) <= state.config.ContextCompactionMaxRunes {
 		return nil
 	}
-	if retainTraceStart > len(state.ledger.Traces) {
-		retainTraceStart = len(state.ledger.Traces)
+	compactEnd := retainTraceStart
+	if state.config.ContextCompactionIncludeCurrent {
+		compactEnd = len(state.ledger.Traces)
 	}
-	items := make([]ContextItem, 0, retainTraceStart)
-	for index := 0; index < retainTraceStart; index++ {
+	if compactEnd > len(state.ledger.Traces) {
+		compactEnd = len(state.ledger.Traces)
+	}
+	items := make([]ContextItem, 0, compactEnd)
+	for index := 0; index < compactEnd; index++ {
 		trace := state.ledger.Traces[index]
 		if trace.contextArchived || trace.Status != "ok" || (trace.Kind != KindQuery && trace.Kind != KindLLM) {
 			continue
@@ -330,13 +337,13 @@ func (state *runState) compactToolContextIfNeeded(retainTraceStart int) error {
 		trace := Trace{ToolName: toolName, Kind: KindLLM, Status: "error", Error: err.Error(), CreatedAt: time.Now()}
 		state.ledger.Traces = append(state.ledger.Traces, trace)
 		emitRunEvent(state.config, "tool_done", trace)
-		return fmt.Errorf("自动压缩工具上下文失败: %w", err)
+		return fmt.Errorf("自动整理工具上下文失败: %w", err)
 	}
 	summary = strings.TrimSpace(summary)
 	if summary == "" {
-		return fmt.Errorf("自动压缩工具上下文失败: 未返回摘要")
+		return fmt.Errorf("自动整理工具上下文失败: 未返回替代内容")
 	}
-	for index := 0; index < retainTraceStart; index++ {
+	for index := 0; index < compactEnd; index++ {
 		trace := &state.ledger.Traces[index]
 		if trace.Status == "ok" && !trace.contextArchived && (trace.Kind == KindQuery || trace.Kind == KindLLM) {
 			trace.contextArchived = true
@@ -349,7 +356,7 @@ func (state *runState) compactToolContextIfNeeded(retainTraceStart int) error {
 	state.ledger.Traces = append(state.ledger.Traces, trace)
 	emitRunEvent(state.config, "tool_done", trace)
 	state.messages = isolatedToolRoundMessages(state.originalMessages, state.ledger.Traces, state.config)
-	state.messages = append(state.messages, currentToolResultsMessage(state.ledger.Traces, retainTraceStart))
+	state.messages = append(state.messages, currentToolResultsMessage(state.ledger.Traces, compactEnd))
 	return nil
 }
 
@@ -358,10 +365,10 @@ func currentToolResultsMessage(traces []Trace, start int) domainllm.Message {
 		start = 0
 	}
 	if start >= len(traces) {
-		return domainllm.Message{Role: "user", Content: "服务端已自动压缩较早的工具上下文，请继续处理原始任务。"}
+		return domainllm.Message{Role: "user", Content: "服务端已整理工具上下文，请继续处理原始任务。"}
 	}
 	var content strings.Builder
-	content.WriteString("服务端已自动压缩较早的工具上下文。以下是本次刚返回、尚未压缩的完整工具结果；应与压缩摘要一起使用：\n")
+	content.WriteString("服务端已整理工具上下文。以下是保留的工具结果；请只依据这些结果与原始任务继续：\n")
 	for index := start; index < len(traces); index++ {
 		trace := traces[index]
 		if trace.contextArchived || trace.Status != "ok" || (trace.Kind != KindQuery && trace.Kind != KindLLM) {

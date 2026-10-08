@@ -360,12 +360,12 @@ func TestInternalContextCompactionPreservesFullToolPayloadUntilThreshold(t *test
 			if len(items) != 1 || !strings.Contains(items[0].Output, "完整检索内容") {
 				t.Fatalf("compactor did not receive the full tool payload: %#v", items)
 			}
-			return "压缩后的证据摘要 [E1]", nil
+			return `{"removed_citations":["[E2]"],"items":[{"citation":"[E1]","content":"保留原文"}]}`, nil
 		},
 	}, nil)
 	state.messages = append(state.messages, domainllm.Message{Role: "tool", Content: strings.Repeat("完整检索内容", 10)})
 	state.ledger.Traces = []Trace{
-		{ToolName: "knowledge.search", Kind: KindQuery, Status: "ok", OutputSummary: "短审计摘要", outputContext: strings.Repeat("完整检索内容", 10)},
+		{ToolName: "knowledge.search", Kind: KindQuery, Status: "ok", OutputSummary: "应删除的证据正文", outputContext: strings.Repeat("完整检索内容", 10)},
 		{ToolName: "knowledge.search", Kind: KindQuery, Status: "ok", OutputSummary: "新结果", outputContext: "本轮新结果 [E9]"},
 	}
 	if err := state.compactToolContextIfNeeded(1); err != nil {
@@ -375,8 +375,53 @@ func TestInternalContextCompactionPreservesFullToolPayloadUntilThreshold(t *test
 		t.Fatalf("unexpected compaction ledger: %#v", state.ledger.Traces)
 	}
 	lastMessage := state.messages[len(state.messages)-1].Content
-	if !strings.Contains(lastMessage, "本轮新结果 [E9]") || strings.Contains(lastMessage, "完整检索内容完整检索内容") {
+	if !strings.Contains(lastMessage, "本轮新结果 [E9]") || !strings.Contains(lastMessage, "保留原文") {
 		t.Fatalf("compacted context was not substituted correctly: %s", lastMessage)
+	}
+	for _, message := range state.messages {
+		if strings.Contains(message.Content, "应删除的证据正文") || strings.Contains(message.Content, "完整检索内容完整检索内容") {
+			t.Fatalf("removed evidence leaked into model context: %s", message.Content)
+		}
+	}
+}
+
+func TestArchivedToolResultIsAbsentFromNextModelContext(t *testing.T) {
+	context := isolatedToolProgressContext([]Trace{
+		{ToolName: "knowledge.search", Kind: KindQuery, Status: "ok", OutputSummary: "应删除的证据正文", contextArchived: true},
+		{ToolName: "writing.compress_evidence", Kind: KindLLM, Status: "ok", OutputSummary: `{"removed_citations":["[E2]"],"items":[{"citation":"[E1]","content":"保留原文"}]}`, outputContext: `{"removed_citations":["[E2]"],"items":[{"citation":"[E1]","content":"保留原文"}]}`},
+	}, 18000)
+	if strings.Contains(context, "应删除的证据正文") || !strings.Contains(context, "保留原文") {
+		t.Fatalf("archived evidence leaked or retained evidence disappeared: %s", context)
+	}
+}
+
+func TestEvidenceSelectionCanRemoveCurrentBatchResult(t *testing.T) {
+	state := testRunState(t, NewRegistry(), RunOptions{
+		ContextCompactionMaxRunes:       1,
+		ContextCompactionTool:           "writing.compress_evidence",
+		ContextCompactionIncludeCurrent: true,
+		ContextCompactor: func(_ context.Context, items []ContextItem) (string, error) {
+			if len(items) != 2 || !strings.Contains(items[1].Output, "本轮无关证据") {
+				t.Fatalf("selector did not receive current batch: %#v", items)
+			}
+			return `{"removed_citations":["[E2]"],"items":[{"citation":"[E1]","content":"保留原文"}]}`, nil
+		},
+	}, nil)
+	state.messages = append(state.messages, domainllm.Message{Role: "tool", Content: "本轮无关证据"})
+	state.ledger.Traces = []Trace{
+		{ToolName: "knowledge.search", Kind: KindQuery, Status: "ok", outputContext: "较早证据"},
+		{ToolName: "knowledge.search", Kind: KindQuery, Status: "ok", outputContext: "本轮无关证据"},
+	}
+	if err := state.compactToolContextIfNeeded(0); err != nil {
+		t.Fatalf("select evidence: %v", err)
+	}
+	if !state.ledger.Traces[0].contextArchived || !state.ledger.Traces[1].contextArchived {
+		t.Fatalf("both old and current results should be archived: %#v", state.ledger.Traces)
+	}
+	for _, message := range state.messages {
+		if strings.Contains(message.Content, "本轮无关证据") {
+			t.Fatalf("current batch removal leaked into model context: %s", message.Content)
+		}
 	}
 }
 
