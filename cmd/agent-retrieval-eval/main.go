@@ -20,7 +20,7 @@ func main() {
 	backend := flag.String("backend", "cpu", "cpu, cuda or vulkan; must match build tag and PATH")
 	embeddingPath := flag.String("embedding-model", "", "embedding GGUF model")
 	rerankPath := flag.String("rerank-model", "", "rerank GGUF model")
-	queryMode := flag.String("query-mode", "user", "user question, focused retrieval query or topic only")
+	queryMode := flag.String("query-mode", "user", "user question, Qwen retrieval instruction, focused query or topic only")
 	fixtureRoot := flag.String("fixture-root", "eval/.local", "directory for retained SQLite and USearch fixtures")
 	resultPath := flag.String("results", "eval/results/retrieval-eval.jsonl", "result JSONL path")
 	reportPath := flag.String("report", "eval/results/retrieval-eval-report.json", "score report JSON path")
@@ -32,7 +32,7 @@ func main() {
 	if *backend != "cpu" && *backend != "cuda" && *backend != "vulkan" {
 		fail("unsupported backend %q", *backend)
 	}
-	if *queryMode != "user" && *queryMode != "focused" && *queryMode != "topic" {
+	if *queryMode != "user" && *queryMode != "qwen-instruct" && *queryMode != "focused" && *queryMode != "topic" {
 		fail("unsupported query mode %q", *queryMode)
 	}
 	gpuLayers := 0
@@ -79,7 +79,12 @@ func main() {
 		case "topic":
 			query = task.Topic
 		}
-		queryVector, err := embedding.Embedding(query)
+		embeddingQuery := query
+		if *queryMode == "qwen-instruct" {
+			// This is the embedding model's retrieval format, not an Agent system prompt.
+			embeddingQuery = "Instruct: Given a web search query, retrieve relevant passages that answer the query\nQuery:" + task.UserPrompt
+		}
+		queryVector, err := embedding.Embedding(embeddingQuery)
 		if err != nil {
 			fail("embed task %s: %v", task.ID, err)
 		}

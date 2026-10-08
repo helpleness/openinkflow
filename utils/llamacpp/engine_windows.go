@@ -155,7 +155,8 @@ func newLocalEngine(modelPath string, opt Options) (Engine, error) {
 		// n_seq_max (8192 / 16 = 512).
 		cp.kv_unified = true
 	} else if opt.IsEmbedding {
-		cp.pooling_type = 1
+		// Honor the GGUF pooling metadata (Qwen3 Embedding uses LAST, not MEAN).
+		cp.pooling_type = C.LLAMA_POOLING_TYPE_UNSPECIFIED
 	}
 	ctx := C.llama_init_from_model(model, cp)
 	if ctx == nil {

@@ -5,8 +5,8 @@
   "missing_result_count": 100,
   "retrieval_recall_at_k": {
     "1": {
-      "value": 0,
-      "numerator": 0,
+      "value": 0.025,
+      "numerator": 1,
       "denominator": 40
     },
     "10": {
@@ -20,8 +20,8 @@
       "denominator": 40
     },
     "5": {
-      "value": 0.275,
-      "numerator": 11,
+      "value": 0.2,
+      "numerator": 8,
       "denominator": 40
     }
   },

@@ -4,14 +4,18 @@
   "db_rows": 40,
   "index_rows": 40,
   "index_reloaded": true,
+  "db_vectors_verified": 40,
+  "index_vectors_verified": 40,
+  "max_db_abs_diff": 0,
+  "max_index_abs_diff": 0,
   "self_top1_hits": 40,
   "self_queries": 40,
   "exact_top10_overlap": 200,
   "exact_top10_total": 200,
   "exact_recall_at_k": {
     "1": {
-      "value": 0,
-      "numerator": 0,
+      "value": 0.025,
+      "numerator": 1,
       "denominator": 40
     },
     "10": {
@@ -25,8 +29,8 @@
       "denominator": 40
     },
     "5": {
-      "value": 0.275,
-      "numerator": 11,
+      "value": 0.2,
+      "numerator": 8,
       "denominator": 40
     }
   },

@@ -302,27 +302,30 @@ go run .
 
 ## Agent Eval 与本机性能
 
-[`eval/README.md`](eval/README.md) 定义了可复现的 `public-office-v2` 评测：20 个公文主题 × 检索、摘要、起草、改写、Tool Call、引用六类，共 **120 条任务**、40 个合成证据片段。任务分别保存用户问题 `user_prompt` 与系统约束 `system_instruction`；检索 Embedding 只接收用户问题。计分器输出 Retrieval Recall@K、Rerank 命中率、Tool Call 成功率、Citation Accuracy 和 Task Success Rate，保留分子、分母；未执行的指标显示 N/A。
+[`eval/README.md`](eval/README.md) 定义了可复现的 `public-office-v2` 评测：20 个公文主题 × 检索、摘要、起草、改写、Tool Call、引用六类，共 **120 条任务**、40 个合成证据片段。任务分别保存用户问题 `user_prompt` 与系统约束 `system_instruction`；默认检索 Embedding 只接收用户问题。计分器输出 Retrieval Recall@K、Rerank 命中率、Tool Call 成功率、Citation Accuracy 和 Task Success Rate，保留分子、分母；未执行的指标显示 N/A。
 
 2026-10-08 在 Windows 主机（Intel i9-13900HX，24 核/32 线程，32 GiB RAM，NVIDIA RTX 4060 Laptop GPU、8188 MiB 显存）上执行了其中 **20 条检索任务**。使用 40 个公开合成片段，写入独立 SQLite `knowledge_chunks` 表，按桌面端 HNSW 默认参数保存 USearch 索引，关闭并重载数据库和索引后，再调用 Qwen3 Embedding 0.6B Q4 向量检索与 BGE-M3 Rerank Q4。逐任务输出、计分报告和索引校验分别在 [`eval/results/retrieval-eval-cuda.jsonl`](eval/results/retrieval-eval-cuda.jsonl)、[`eval/results/retrieval-eval-cuda-report.json`](eval/results/retrieval-eval-cuda-report.json)、[`eval/results/retrieval-eval-cuda-validation.json`](eval/results/retrieval-eval-cuda-validation.json)。本项仍是向量检索分层评测，没有经过正式知识库的 FTS5 混合召回、权限过滤及 Chat Agent。
 
 | 指标 | 本次结果 | 样本 |
 | --- | ---: | ---: |
-| Retrieval Recall@1 / @3 / @5 / @10 | 17.5% / 30.0% / 37.5% / **45.0%** | 20 条检索任务，40 个 gold 片段 |
+| Retrieval Recall@1 / @3 / @5 / @10 | 17.5% / 27.5% / 35.0% / **45.0%** | 20 条检索任务，40 个 gold 片段 |
 | Rerank 命中率@1 / @3 / @5 / @10 | **75.0%** / 75.0% / 75.0% / 75.0% | 20 条检索任务；包含上游未召回的影响 |
 | Tool Call 成功率 / Citation Accuracy / Task Success Rate | **N/A** | 尚未接入 Chat Agent 与答案评审，100 条非检索任务未执行 |
 
-索引校验确认 SQLite 与重载后的 USearch 各有 40 条记录，40/40 条原向量自查询排第 1，20 次问题查询的 USearch Top10 与精确余弦 Top10 集合重合 **200/200**。因此，这组任务的剩余漏召回不能归因于索引文件损坏或 HNSW Top10 近似误差；还需单独评测 Embedding 与正式混合召回。这组 20 条检索结果不能代替 120 条端到端 Agent 成功率。
+索引校验确认 SQLite 与重载后的 USearch 各有 40 条记录；从 SQLite 读回的 40 条向量、从 USearch 读回的 40 条向量均与模型输出逐维一致（最大绝对差均为 0）。40/40 条原向量自查询排第 1，20 次问题查询的 USearch Top10 与精确余弦 Top10 集合重合 **200/200**。本次索引为 1024 维、余弦距离、F32、HNSW M=32、efConstruction=256、efSearch=64。评测保留的文件位于 `eval/.local/retrieval-*/inkflow-eval.db` 和同目录的 `officialdoc_knowledge_chunks.usearch`。这些校验排除了本次文件损坏与 HNSW Top10 近似误差，不能证明模型语义排序本身正确。Qwen3 GGUF 声明 LAST pooling；本地 llama.cpp Embedding 现遵循模型元数据。未对模型输出与另一推理框架进行逐维交叉验证。
+
+已有桌面数据库中的向量若由旧的 MEAN pooling 生成，升级后需在知识文档页面使用“重建索引”重新生成文档向量，不能把新查询向量直接与旧向量混用；历史对话记忆向量也需重新生成。这个操作不应仅删除 `.usearch` 文件，因为 SQLite 中的旧向量同样需要更新。
 
 检索任务的用户问题采用“业务培训的办理要求？”这一类自然提问。回答前调用工具、引用和格式要求分别放在系统约束中，不送入 Embedding。为检查检索词措辞的影响，在相同语料、模型和索引参数下只改变传给 Embedding 与 Rerank 的检索词；下面是受控查询对照，并非正式混合检索结果：
 
 | 检索词 | Retrieval Recall@10 | Rerank 命中率@1 |
 | --- | ---: | ---: |
 | 用户问题（如“业务培训的办理要求？”） | 18/40（45.0%） | 15/20（75.0%） |
+| Qwen3 示例检索指令＋用户问题（诊断用） | 12/40（30.0%） | 10/20（50.0%） |
 | 主题＋办理事项、时限、责任 | 17/40（42.5%） | 14/20（70.0%） |
 | 仅主题（诊断用） | 21/40（52.5%） | 13/20（65.0%） |
 
-三组查询的 USearch Top10 均与各自的精确余弦 Top10 集合重合 200/200。“仅主题”省略了用户要找的具体要求，只用于诊断，不能直接作为生产检索策略。完整逐题结果见 [`eval/results/`](eval/results/)。
+四组查询的 USearch Top10 均与各自的精确余弦 Top10 集合重合 200/200。Qwen3 检索指令是模型输入格式的诊断项，不是 Agent 的系统提示词；本合成样本中它没有改善召回，不能据此直接改动生产查询。“仅主题”省略了用户要找的具体要求，也不能直接作为生产检索策略。每题的两个 gold 分别是“办理要求”和“留痕要求”，而用户只问“办理要求”：在默认查询下，前者命中 12/20，后者 6/20，均命中 3/20，均未命中 5/20。按两个片段都应召回来计算的 Recall@10 因此还受到标注范围的影响；这不能替代逐题相关性人工复核。完整逐题结果见 [`eval/results/`](eval/results/)。
 
 同一主机另用固定种子的 **100,000 条 × 384 维合成向量**建立 USearch HNSW 索引，查询 1,000 次、Top10：建索引 104.013 s；检索 **P50 1.199 ms / P95 2.285 ms**；向量自查询 Recall@10 **92.0%**；USearch 报告索引内存 **273.338 MiB**。它衡量向量索引性能，不能当作公文语义检索准确率。原始结果在 [`eval/results/retrieval-100k-windows.json`](eval/results/retrieval-100k-windows.json)。
 

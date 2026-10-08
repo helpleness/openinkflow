@@ -1,6 +1,6 @@
 {
   "fixture": "SQLite knowledge_chunks + saved/reloaded USearch",
-  "query_mode": "topic",
+  "query_mode": "qwen-instruct",
   "db_rows": 40,
   "index_rows": 40,
   "index_reloaded": true,
@@ -14,23 +14,23 @@
   "exact_top10_total": 200,
   "exact_recall_at_k": {
     "1": {
-      "value": 0.175,
-      "numerator": 7,
+      "value": 0.025,
+      "numerator": 1,
       "denominator": 40
     },
     "10": {
-      "value": 0.525,
-      "numerator": 21,
+      "value": 0.3,
+      "numerator": 12,
       "denominator": 40
     },
     "3": {
-      "value": 0.325,
-      "numerator": 13,
+      "value": 0.1,
+      "numerator": 4,
       "denominator": 40
     },
     "5": {
-      "value": 0.4,
-      "numerator": 16,
+      "value": 0.15,
+      "numerator": 6,
       "denominator": 40
     }
   },

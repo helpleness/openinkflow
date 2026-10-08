@@ -4,6 +4,10 @@
   "db_rows": 40,
   "index_rows": 40,
   "index_reloaded": true,
+  "db_vectors_verified": 40,
+  "index_vectors_verified": 40,
+  "max_db_abs_diff": 0,
+  "max_index_abs_diff": 0,
   "self_top1_hits": 40,
   "self_queries": 40,
   "exact_top10_overlap": 200,
@@ -20,13 +24,13 @@
       "denominator": 40
     },
     "3": {
-      "value": 0.3,
-      "numerator": 12,
+      "value": 0.275,
+      "numerator": 11,
       "denominator": 40
     },
     "5": {
-      "value": 0.375,
-      "numerator": 15,
+      "value": 0.35,
+      "numerator": 14,
       "denominator": 40
     }
   },

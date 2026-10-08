@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"sort"
@@ -19,17 +20,21 @@ import (
 const fixtureCollection = vectorstore.Collection("officialdoc_knowledge_chunks")
 
 type validationReport struct {
-	Fixture           string            `json:"fixture"`
-	QueryMode         string            `json:"query_mode"`
-	DBRows            int               `json:"db_rows"`
-	IndexRows         uint              `json:"index_rows"`
-	IndexReloaded     bool              `json:"index_reloaded"`
-	SelfTop1Hits      int               `json:"self_top1_hits"`
-	SelfQueries       int               `json:"self_queries"`
-	ExactTop10Overlap int               `json:"exact_top10_overlap"`
-	ExactTop10Total   int               `json:"exact_top10_total"`
-	ExactRecallAtK    map[int]eval.Rate `json:"exact_recall_at_k"`
-	HNSW              struct {
+	Fixture              string            `json:"fixture"`
+	QueryMode            string            `json:"query_mode"`
+	DBRows               int               `json:"db_rows"`
+	IndexRows            uint              `json:"index_rows"`
+	IndexReloaded        bool              `json:"index_reloaded"`
+	DBVectorsVerified    int               `json:"db_vectors_verified"`
+	IndexVectorsVerified int               `json:"index_vectors_verified"`
+	MaxDBAbsDiff         float64           `json:"max_db_abs_diff"`
+	MaxIndexAbsDiff      float64           `json:"max_index_abs_diff"`
+	SelfTop1Hits         int               `json:"self_top1_hits"`
+	SelfQueries          int               `json:"self_queries"`
+	ExactTop10Overlap    int               `json:"exact_top10_overlap"`
+	ExactTop10Total      int               `json:"exact_top10_total"`
+	ExactRecallAtK       map[int]eval.Rate `json:"exact_recall_at_k"`
+	HNSW                 struct {
 		Metric          string `json:"metric"`
 		Quantization    string `json:"quantization"`
 		Connectivity    uint   `json:"connectivity"`
@@ -142,6 +147,29 @@ func buildFixture(root string, corpus []eval.CorpusChunk, vectors [][]float32) (
 	f.Validation.HNSW.ExpansionAdd = config.ExpansionAdd
 	f.Validation.HNSW.ExpansionSearch = config.ExpansionSearch
 	for i, row := range rows {
+		var persisted model.KnowledgeChunk
+		if err := db.First(&persisted, row.ID).Error; err != nil {
+			return nil, fmt.Errorf("reload SQLite embedding %s: %w", row.Metadata, err)
+		}
+		if persisted.Embedding == nil || persisted.Metadata != row.Metadata {
+			return nil, fmt.Errorf("SQLite embedding or chunk ID missing for %s", row.Metadata)
+		}
+		dbDiff, err := maxVectorDifference(vectors[i], persisted.Embedding.Slice())
+		if err != nil || dbDiff > 1e-6 {
+			return nil, fmt.Errorf("SQLite embedding differs for %s: max diff %g, error %v", row.Metadata, dbDiff, err)
+		}
+		f.Validation.DBVectorsVerified++
+		f.Validation.MaxDBAbsDiff = math.Max(f.Validation.MaxDBAbsDiff, dbDiff)
+		loadedVector, err := index.Get(usearch.Key(row.ID), 1)
+		if err != nil {
+			return nil, fmt.Errorf("reload USearch vector %s: %w", row.Metadata, err)
+		}
+		indexDiff, err := maxVectorDifference(vectors[i], loadedVector)
+		if err != nil || indexDiff > 1e-6 {
+			return nil, fmt.Errorf("USearch vector differs for %s: max diff %g, error %v", row.Metadata, indexDiff, err)
+		}
+		f.Validation.IndexVectorsVerified++
+		f.Validation.MaxIndexAbsDiff = math.Max(f.Validation.MaxIndexAbsDiff, indexDiff)
 		keys, _, err := index.Search(vectors[i], 1)
 		if err != nil {
 			return nil, fmt.Errorf("self-query %s: %w", row.Metadata, err)
@@ -151,6 +179,21 @@ func buildFixture(root string, corpus []eval.CorpusChunk, vectors [][]float32) (
 		}
 	}
 	return f, nil
+}
+
+func maxVectorDifference(want, got []float32) (float64, error) {
+	if len(want) != len(got) {
+		return 0, fmt.Errorf("vector dimensions differ: %d and %d", len(want), len(got))
+	}
+	var maximum float64
+	for i := range want {
+		difference := math.Abs(float64(want[i]) - float64(got[i]))
+		if math.IsNaN(difference) || math.IsInf(difference, 0) {
+			return 0, fmt.Errorf("non-finite component at %d", i)
+		}
+		maximum = math.Max(maximum, difference)
+	}
+	return maximum, nil
 }
 
 func (f *retrievalFixture) Close() {
