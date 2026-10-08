@@ -1,0 +1,14 @@
+{
+  "backend": "vulkan",
+  "mode": "rerank",
+  "measured_at": "2026-10-08T18:51:25+08:00",
+  "model": "bge-reranker-v2-m3-Q4_K_M.gguf",
+  "model_load_ms": 1046.431,
+  "input_count": 10,
+  "documents_per_run": 8,
+  "warmup_runs": 1,
+  "runs": 10,
+  "latency_p50_ms": 48.658,
+  "latency_p95_ms": 106.289,
+  "throughput_per_second": 139.378
+}

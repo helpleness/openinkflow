@@ -1,0 +1,15 @@
+{
+  "workload": "deterministic-synthetic-hnsw-retrieval",
+  "measured_at": "2026-10-08T17:44:54+08:00",
+  "chunks": 100000,
+  "dimensions": 384,
+  "query_count": 1000,
+  "top_k": 10,
+  "build_seconds": 104.013,
+  "retrieval_p50_ms": 1.199,
+  "retrieval_p95_ms": 2.285,
+  "recall_at_k": 0.92,
+  "index_memory_mb": 273.338,
+  "usearch_compiled_isa": "serial",
+  "usearch_available_isa": "serial"
+}

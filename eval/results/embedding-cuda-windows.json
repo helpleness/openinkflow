@@ -1,0 +1,14 @@
+{
+  "backend": "cuda",
+  "mode": "embedding",
+  "measured_at": "2026-10-08T18:50:55+08:00",
+  "model": "qwen3-embedding-0.6b-q4_k_m.gguf",
+  "model_load_ms": 519.526,
+  "input_count": 20,
+  "warmup_runs": 1,
+  "runs": 20,
+  "latency_p50_ms": 11.231,
+  "latency_p95_ms": 15.245,
+  "throughput_per_second": 86.557,
+  "vector_dimensions": 1024
+}

@@ -1,0 +1,14 @@
+{
+  "backend": "cpu",
+  "mode": "embedding",
+  "measured_at": "2026-10-08T18:50:32+08:00",
+  "model": "qwen3-embedding-0.6b-q4_k_m.gguf",
+  "model_load_ms": 428.437,
+  "input_count": 20,
+  "warmup_runs": 1,
+  "runs": 20,
+  "latency_p50_ms": 88.595,
+  "latency_p95_ms": 98.457,
+  "throughput_per_second": 11.18,
+  "vector_dimensions": 1024
+}

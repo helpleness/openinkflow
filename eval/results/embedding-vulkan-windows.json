@@ -1,0 +1,14 @@
+{
+  "backend": "vulkan",
+  "mode": "embedding",
+  "measured_at": "2026-10-08T18:51:13+08:00",
+  "model": "qwen3-embedding-0.6b-q4_k_m.gguf",
+  "model_load_ms": 706.887,
+  "input_count": 20,
+  "warmup_runs": 1,
+  "runs": 20,
+  "latency_p50_ms": 14.934,
+  "latency_p95_ms": 16.522,
+  "throughput_per_second": 66.459,
+  "vector_dimensions": 1024
+}

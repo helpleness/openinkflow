@@ -1,0 +1,14 @@
+{
+  "backend": "cpu",
+  "mode": "rerank",
+  "measured_at": "2026-10-08T18:50:45+08:00",
+  "model": "bge-reranker-v2-m3-Q4_K_M.gguf",
+  "model_load_ms": 780.313,
+  "input_count": 10,
+  "documents_per_run": 8,
+  "warmup_runs": 1,
+  "runs": 10,
+  "latency_p50_ms": 416.726,
+  "latency_p95_ms": 444.98,
+  "throughput_per_second": 19.079
+}

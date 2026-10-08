@@ -2,7 +2,7 @@
 
 InkFlow 是一个面向组织协作的公文写作与知识库系统。它把资料导入、文档解析、混合检索、证据引用、受控生成、版本审阅和 AI 对话放在同一套租户与组织权限边界中，同时支持 Web 服务端和 Windows 桌面客户端。
 
-> 当前仓库是脱敏后的公开代码快照。运行配置、密钥、业务资料、测试数据和 `docs/` 均不在仓库中。
+> 当前仓库是脱敏后的公开代码快照。运行配置、密钥、业务资料、真实业务测试数据和 `docs/` 均不在仓库中；`eval/` 仅包含可公开的合成公文任务与实测汇总。
 
 ## 核心能力
 
@@ -299,6 +299,32 @@ go run .
 ```
 
 也可以将 `-Backend` 改为 `cuda` 或 `vulkan`；对应构建机和运行机必须具备相应 SDK、驱动及运行库。桌面运行数据默认保存在 `%LOCALAPPDATA%\InkFlow`，升级不会覆盖用户配置和数据库。
+
+## Agent Eval 与本机性能
+
+[`eval/README.md`](eval/README.md) 定义了可复现的 `public-office-v1` 评测：20 个公文主题 × 检索、摘要、起草、改写、Tool Call、引用六类，共 **120 条任务**、40 个合成证据片段。计分器输出 Retrieval Recall@K、Rerank 命中率、Tool Call 成功率、Citation Accuracy 和 Task Success Rate，保留分子、分母；未执行的指标显示 N/A。
+
+2026-10-08 在 Windows 主机（Intel i9-13900HX，24 核/32 线程，32 GiB RAM，NVIDIA RTX 4060 Laptop GPU、8188 MiB 显存）上执行了其中 **20 条检索任务**。流程实际调用 Qwen3 Embedding 0.6B Q4、USearch 和 BGE-M3 Rerank Q4；检索使用 40 个公开合成片段。逐任务输出和计分报告在 [`eval/results/retrieval-eval-cuda-report.json`](eval/results/retrieval-eval-cuda-report.json)。
+
+| 指标 | 本次结果 | 样本 |
+| --- | ---: | ---: |
+| Retrieval Recall@1 / @3 / @5 / @10 | 2.5% / 10.0% / 22.5% / **27.5%** | 20 条检索任务，40 个 gold 片段 |
+| Rerank 命中率@1 / @3 / @5 / @10 | **50.0%** / 50.0% / 50.0% / 50.0% | 20 条检索任务；包含上游未召回的影响 |
+| Tool Call 成功率 / Citation Accuracy / Task Success Rate | **N/A** | 尚未接入 Chat Agent 与答案评审，100 条非检索任务未执行 |
+
+结果显示这组模型在合成公文语料上的召回仍需改进；这组 20 条检索结果不能代替 120 条端到端 Agent 成功率。
+
+同一主机另用固定种子的 **100,000 条 × 384 维合成向量**建立 USearch HNSW 索引，查询 1,000 次、Top10：建索引 104.013 s；检索 **P50 1.199 ms / P95 2.285 ms**；向量自查询 Recall@10 **92.0%**；USearch 报告索引内存 **273.338 MiB**。它衡量向量索引性能，不能当作公文语义检索准确率。原始结果在 [`eval/results/retrieval-100k-windows.json`](eval/results/retrieval-100k-windows.json)。
+
+本地模型均使用相同合成文本，先热身 1 次，再测 Embedding 20 条或 Rerank 10 轮 × 8 文档；P50/P95 为单条 Embedding 或单轮 8 文档 Rerank 的耗时。CUDA 和 Vulkan 日志均确认模型层加载到 RTX 4060。下面的吞吐为实测总条数除以推理总时间，模型加载不计入。
+
+| 后端 | Embedding P50 / P95 | Embedding 吞吐 | Rerank P50 / P95 | Rerank 吞吐 |
+| --- | ---: | ---: | ---: | ---: |
+| CPU | 88.595 / 98.457 ms | 11.180 条/s | 416.726 / 444.980 ms | 19.079 文档/s |
+| CUDA | 11.231 / 15.245 ms | 86.557 条/s | 32.496 / 34.311 ms | 248.481 文档/s |
+| Vulkan | 14.934 / 16.522 ms | 66.459 条/s | 48.658 / 106.289 ms | 139.378 文档/s |
+
+原始数据见 [`eval/results/`](eval/results/)。Embedding 输出为 1024 维，模型分别是 `qwen3-embedding-0.6b-q4_k_m.gguf` 与 `bge-reranker-v2-m3-Q4_K_M.gguf`。当前受控写作的单轮工具批次在编排器内串行执行，**单个 Run 同时执行的 Tool 数量为 1**；跨 Run 并发受共享工作池约束，本次未做压力测试。Agent Run 从检查点恢复到再次完成工具步骤的时间也未测量，因为本机没有配置完整的 Chat LLM 与持久化写作任务，因此记为 **N/A**。
 
 ## 配置与安全边界
 
