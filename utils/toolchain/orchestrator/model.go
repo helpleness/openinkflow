@@ -81,6 +81,9 @@ func (state *runState) requestModelAttempt(step, attempt int, messages []domainl
 	if response != nil {
 		payload["finish_reason"] = response.FinishReason
 		payload["output_tokens"] = response.Usage.OutputTokens
+		payload["content_runes"] = len([]rune(response.Message.Content))
+		payload["reasoning_runes"] = len([]rune(response.Message.ReasoningContent))
+		payload["tool_calls"] = len(response.Message.ToolCalls)
 	}
 	if err != nil {
 		payload["error"] = err.Error()
@@ -88,7 +91,6 @@ func (state *runState) requestModelAttempt(step, attempt int, messages []domainl
 		return domainllm.Message{}, err
 	}
 	payload["has_tool_calls"] = len(message.ToolCalls) > 0
-	payload["content_runes"] = len([]rune(message.Content))
 	emitRunEvent(state.config, "llm_done", payload)
 	return message, nil
 }

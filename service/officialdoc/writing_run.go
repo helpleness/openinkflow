@@ -26,6 +26,7 @@ const (
 	writingStepComposeDocument  = "compose_document"
 	writingStepCommitVersion    = "commit_version"
 	writingStepCompleted        = "completed"
+	writingComposeMaxTokens     = 8192
 )
 
 // writingRunController only tracks goroutines in this process. The durable
@@ -352,6 +353,7 @@ func (service *WritingRunService) composeDocument(ctx context.Context, runID uin
 	if maxToolCalls < 1 {
 		maxToolCalls = 1
 	}
+	initialOutputLimit := false
 	result, err := orchestrator.RunWithTools(ctx, []llmutil.Message{
 		{Role: "system", Content: systemPrompt},
 		{Role: "user", Content: userPrompt},
@@ -368,7 +370,7 @@ func (service *WritingRunService) composeDocument(ctx context.Context, runID uin
 			LLM:         &llmConfig,
 			Model:       llmConfig.ModelDefault,
 			Temperature: llmConfig.Temperature,
-			MaxTokens:   8192,
+			MaxTokens:   writingComposeMaxTokens,
 		},
 		OnEvent: func(event string, payload any) {
 			switch event {
@@ -378,7 +380,10 @@ func (service *WritingRunService) composeDocument(ctx context.Context, runID uin
 				}
 			case "llm_error":
 				if data, ok := payload.(map[string]any); ok && data["phase"] == "orchestrator" {
-					message := fmt.Sprintf("正文阶段模型请求失败：%v；max_tokens=%v，finish_reason=%v，输出 tokens=%v", data["error"], data["max_tokens"], data["finish_reason"], data["output_tokens"])
+					if data["finish_reason"] == "length" {
+						initialOutputLimit = true
+					}
+					message := fmt.Sprintf("正文阶段模型请求失败：%v；max_tokens=%v，finish_reason=%v，输出 tokens=%v，正文字符=%v，推理字符=%v，工具调用数=%v，provider=%s", data["error"], data["max_tokens"], data["finish_reason"], data["output_tokens"], data["content_runes"], data["reasoning_runes"], data["tool_calls"], llmConfig.ProviderType)
 					_ = service.appendMessage(context.Background(), run.ID, round, "system", "", message)
 				}
 			case "tool_done":
@@ -404,6 +409,9 @@ func (service *WritingRunService) composeDocument(ctx context.Context, runID uin
 	if result != nil && result.MessageFromModel {
 		content = strings.TrimSpace(result.Message)
 	} else {
+		if initialOutputLimit {
+			return nil, fmt.Errorf("正文模型首次生成已达到 max_tokens=%d 输出上限；请根据上方模型日志检查正文与推理输出", writingComposeMaxTokens)
+		}
 		// A tool trace summary is useful for the run ledger, but is not a draft.
 		// Retry once without tools using all evidence frozen during this run.
 		_ = service.appendMessage(ctx, run.ID, round, "system", "", "写作模型未返回可保存的正文，正在使用已冻结证据重试一次无工具生成。")
@@ -419,7 +427,7 @@ func (service *WritingRunService) composeDocument(ctx context.Context, runID uin
 			{Role: "user", Content: retryUser},
 		}, llmutil.GenerateOptions{
 			Context: ctx, LLM: &llmConfig, Model: llmConfig.ModelDefault,
-			Temperature: llmConfig.Temperature, MaxTokens: 8192,
+			Temperature: llmConfig.Temperature, MaxTokens: writingComposeMaxTokens,
 			Reasoning: &domainllm.Reasoning{Enabled: false},
 		})
 		if err != nil {

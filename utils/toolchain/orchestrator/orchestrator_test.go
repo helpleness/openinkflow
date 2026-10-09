@@ -59,7 +59,7 @@ func TestRunWithToolsThroughConfiguredProvider(t *testing.T) {
 func TestOutputLimitEventReportsActualModelLimit(t *testing.T) {
 	var failure map[string]any
 	provider := &scriptedProvider{chat: func(context.Context, domainllm.ChatRequest) (*domainllm.ChatResponse, error) {
-		return &domainllm.ChatResponse{FinishReason: "length", Usage: domainllm.Usage{OutputTokens: 8192}}, nil
+		return &domainllm.ChatResponse{FinishReason: "length", Message: domainllm.Message{Content: "未完成", ReasoningContent: "思考内容"}, Usage: domainllm.Usage{OutputTokens: 8192}}, nil
 	}}
 	state := testRunState(t, NewRegistry(), RunOptions{
 		LLM: &llmutil.GenerateOptions{LLM: &config.LLM{ProviderType: "openai", ModelDefault: "test"}, MaxTokens: 8192},
@@ -71,7 +71,7 @@ func TestOutputLimitEventReportsActualModelLimit(t *testing.T) {
 	}, provider)
 	_, err := state.requestModelAttempt(0, 1, state.messages)
 	var limit *domainllm.OutputLimitError
-	if !errors.As(err, &limit) || failure["max_tokens"] != 8192 || failure["finish_reason"] != "length" || failure["output_tokens"] != int64(8192) {
+	if !errors.As(err, &limit) || failure["max_tokens"] != 8192 || failure["finish_reason"] != "length" || failure["output_tokens"] != int64(8192) || failure["content_runes"] != 3 || failure["reasoning_runes"] != 4 || failure["tool_calls"] != 0 {
 		t.Fatalf("output limit diagnosis: err=%v event=%v", err, failure)
 	}
 }
