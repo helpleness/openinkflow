@@ -21,12 +21,16 @@ func TestRunWithToolsThroughConfiguredProvider(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests++
 		var request struct {
-			Messages []domainllm.Message `json:"messages"`
+			Messages  []domainllm.Message `json:"messages"`
+			MaxTokens int                 `json:"max_tokens"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
 			t.Error(err)
 			w.WriteHeader(400)
 			return
+		}
+		if request.MaxTokens != 8192 {
+			t.Errorf("provider max_tokens = %d, want caller's 8192", request.MaxTokens)
 		}
 		w.Header().Set("Content-Type", "application/json")
 		if requests == 1 {
@@ -45,7 +49,7 @@ func TestRunWithToolsThroughConfiguredProvider(t *testing.T) {
 	executor := &recordingExecutor{}
 	result, err := RunWithTools(context.Background(), []llmutil.Message{{Role: "user", Content: "检索"}}, registry, RunOptions{
 		Executor: executor, UserName: "alice", RequiredTool: "document.search",
-		LLM: &llmutil.GenerateOptions{Timeout: 5 * time.Second, LLM: &config.LLM{ProviderType: "openai", ModelDefault: "test", BaseUrl: server.URL}},
+		LLM: &llmutil.GenerateOptions{Timeout: 5 * time.Second, MaxTokens: 8192, LLM: &config.LLM{ProviderType: "openai", ModelDefault: "test", BaseUrl: server.URL}},
 	})
 	if err != nil || result.Message != "已检索" || len(result.Traces) != 1 || requests != 2 || executor.calls != 1 {
 		t.Fatalf("result=%+v err=%v requests=%d executor=%+v", result, err, requests, executor)
