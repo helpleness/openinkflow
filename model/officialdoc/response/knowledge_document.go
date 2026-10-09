@@ -19,6 +19,7 @@ type KnowledgeDocumentView struct {
 
 // KnowledgeEvidence is a source chunk returned by search and stored by generation.
 type KnowledgeEvidence struct {
+	Citation     string  `json:"citation,omitempty"`
 	DocumentID   uint    `json:"document_id"`
 	DocumentName string  `json:"document_name"`
 	ChunkID      uint    `json:"chunk_id"`

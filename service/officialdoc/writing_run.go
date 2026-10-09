@@ -402,6 +402,7 @@ func (service *WritingRunService) composeDocument(ctx context.Context, runID uin
 		if evidenceErr != nil {
 			return nil, fmt.Errorf("读取补充检索证据失败: %w", evidenceErr)
 		}
+		latestEvidence = selection.visibleEvidence(latestEvidence)
 		retrySystem, retryUser := controlledWritingPrompt(run.Stage, task, template, latestEvidence)
 		retryUser += "\n请直接输出本阶段的完整中文 Markdown 文稿，不要输出工具调用记录或工具执行摘要。"
 		content, err = llmutil.GenerateMessages([]llmutil.Message{
@@ -532,7 +533,7 @@ func (service *WritingRunService) runEvidence(ctx context.Context, runID uint) (
 	}
 	items := make([]response.KnowledgeEvidence, 0, len(records))
 	for _, record := range records {
-		items = append(items, response.KnowledgeEvidence{DocumentID: record.DocumentID, DocumentName: record.DocumentName, ChunkID: record.ChunkID, Title: record.ChunkTitle, Content: record.ContentSnapshot, Score: record.Score})
+		items = append(items, response.KnowledgeEvidence{Citation: fmt.Sprintf("[E%d]", record.Rank), DocumentID: record.DocumentID, DocumentName: record.DocumentName, ChunkID: record.ChunkID, Title: record.ChunkTitle, Content: record.ContentSnapshot, Score: record.Score})
 	}
 	return items, nil
 }

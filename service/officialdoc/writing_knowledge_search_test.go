@@ -110,6 +110,26 @@ func TestControlledWritingPromptIncludesAllFrozenEvidence(t *testing.T) {
 	}
 }
 
+func TestWritingRetryKeepsRemovedEvidenceOutAndCitationNumbersStable(t *testing.T) {
+	selection := newWritingEvidenceSelection(1)
+	selection.observe([]writingKnowledgeSearchEvidence{
+		{Citation: "[E2]", Content: "不相关的证据"},
+		{Citation: "[E3]", Content: "需要保留的证据"},
+	})
+	if _, err := selection.remove(json.RawMessage(`{"drop":["[E2]"]}`)); err != nil {
+		t.Fatal(err)
+	}
+	visible := selection.visibleEvidence([]response.KnowledgeEvidence{
+		{Citation: "[E1]", Content: "初始证据"},
+		{Citation: "[E2]", Content: "不相关的证据"},
+		{Citation: "[E3]", Content: "需要保留的证据"},
+	})
+	_, prompt := controlledWritingPrompt("draft", &model.WritingTask{}, model.DocumentTemplate{}, visible)
+	if len(visible) != 2 || strings.Contains(prompt, "不相关的证据") || !strings.Contains(prompt, "[E1] 来源") || !strings.Contains(prompt, "[E3] 来源") {
+		t.Fatalf("retry evidence or citation changed: %s", prompt)
+	}
+}
+
 func TestWritingEvidenceSelectionRemovesOnlyChosenRecords(t *testing.T) {
 	selection := newWritingEvidenceSelection(0)
 	selection.observe([]writingKnowledgeSearchEvidence{

@@ -92,6 +92,16 @@ func (selection *writingEvidenceSelection) citations() []string {
 	return ids
 }
 
+func (selection *writingEvidenceSelection) visibleEvidence(items []response.KnowledgeEvidence) []response.KnowledgeEvidence {
+	visible := make([]response.KnowledgeEvidence, 0, len(items))
+	for _, item := range items {
+		if !selection.suppressed[item.Citation] {
+			visible = append(visible, item)
+		}
+	}
+	return visible
+}
+
 func (selection *writingEvidenceSelection) remove(raw json.RawMessage) (writingPrunedEvidenceContext, error) {
 	encoded, err := pruneWritingEvidenceContext(selection.candidates, string(raw))
 	if err != nil {

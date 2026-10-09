@@ -204,7 +204,11 @@ func controlledWritingPrompt(stage string, task *model.WritingTask, template mod
 	}
 	builder.WriteString("可用证据：\n")
 	for index, item := range evidence {
-		fmt.Fprintf(&builder, "[E%d] 来源《%s》/%s\n%s\n\n", index+1, item.DocumentName, item.Title, item.Content)
+		citation := item.Citation
+		if citation == "" {
+			citation = fmt.Sprintf("[E%d]", index+1)
+		}
+		fmt.Fprintf(&builder, "%s 来源《%s》/%s\n%s\n\n", citation, item.DocumentName, item.Title, item.Content)
 	}
 	return systemPrompt, builder.String()
 }
