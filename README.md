@@ -6,7 +6,7 @@ InkFlow 是一个面向组织协作的公文写作与知识库系统。它把资
 
 ## 功能演示
 
-[![观看 InkFlow 核心功能演示](assets/demo/inkflow-core-features-cover.png)](assets/demo/inkflow-core-features.mp4)
+[![观看 InkFlow 核心功能演示](assets/demo/inkflow-core-features-preview.gif)](assets/demo/inkflow-core-features.mp4)
 
 [观看或下载 MP4 演示视频](assets/demo/inkflow-core-features.mp4)（约 2 分钟，无声）。视频使用虚构测试资料，展示混合检索与证据引用、AI 对话中手动选择 Skill，以及受控写作的工具轨迹和版本化文稿。
 
