@@ -18,6 +18,7 @@ import (
 	systemService "InkFlow/service/system"
 	llmutil "InkFlow/utils/llm"
 	"InkFlow/utils/taskrun"
+
 	"gorm.io/gorm"
 )
 
@@ -26,7 +27,7 @@ const (
 	writingStepComposeDocument  = "compose_document"
 	writingStepCommitVersion    = "commit_version"
 	writingStepCompleted        = "completed"
-	writingComposeMaxTokens     = 8192
+	writingComposeMaxTokens     = 65536
 )
 
 // writingRunController only tracks goroutines in this process. The durable
