@@ -222,14 +222,6 @@ func newRunState(ctx context.Context, messages []domainllm.Message, registry *Re
 	synthesis := request
 	synthesis.Tools, synthesis.ToolChoice = nil, nil
 	synthesis.Reasoning = &domainllm.Reasoning{Enabled: false}
-	maxTokens, temperature := llmOptions.MaxTokens, llmOptions.Temperature
-	if maxTokens <= 0 || maxTokens > 2048 {
-		maxTokens = 2048
-	}
-	if temperature <= 0 || temperature > 0.4 {
-		temperature = 0.25
-	}
-	synthesis.MaxTokens, synthesis.Temperature = &maxTokens, &temperature
 	return &runState{
 		ctx: ctx, registry: registry, executor: options.Executor, config: config,
 		originalMessages: append([]domainllm.Message(nil), messages...),

@@ -230,18 +230,22 @@ func TestSynthesisUsesProviderStreamAndFreshDeadlineForFallback(t *testing.T) {
 			p := &scriptedProvider{}
 			p.stream = func(ctx context.Context, request domainllm.ChatRequest) (domainllm.ChatStream, error) {
 				streamContext = ctx
-				if len(request.Tools) != 0 || request.ToolChoice != nil || *request.MaxTokens != 2048 || *request.Temperature != 0.25 || request.Reasoning.Enabled {
+				if len(request.Tools) != 0 || request.ToolChoice != nil || *request.MaxTokens != 8192 || *request.Temperature != 0.8 || request.Reasoning.Enabled {
 					t.Fatalf("synthesis request=%+v", request)
 				}
 				return stream, nil
 			}
 			p.chat = func(ctx context.Context, request domainllm.ChatRequest) (*domainllm.ChatResponse, error) {
-				if ctx == streamContext || ctx.Err() != nil || len(request.Tools) != 0 {
+				if ctx == streamContext || ctx.Err() != nil || len(request.Tools) != 0 || *request.MaxTokens != 8192 || *request.Temperature != 0.8 {
 					t.Fatal("fallback did not get a fresh tool-free request")
 				}
 				return &domainllm.ChatResponse{Message: domainllm.Message{Content: "回退结论"}}, nil
 			}
-			state := testRunState(t, NewRegistry(), RunOptions{SynthesizeAfterTools: true, OnEvent: func(string, any) {}}, p)
+			state := testRunState(t, NewRegistry(), RunOptions{
+				SynthesizeAfterTools: true,
+				OnEvent:              func(string, any) {},
+				LLM:                  &llmutil.GenerateOptions{LLM: &config.LLM{ProviderType: "openai", ModelDefault: "test"}, MaxTokens: 8192, Temperature: 0.8},
+			}, p)
 			state.config.ModelTimeout = time.Second
 			state.ledger.Traces = []Trace{{ToolName: "evidence", Status: "ok", OutputSummary: "证据"}}
 			text, reasoning, err := state.synthesizeToolAnswer()
