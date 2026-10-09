@@ -1,4 +1,6 @@
 import * as ort from 'onnxruntime-web/webgpu'
+import ortWebGPUModuleURL from 'onnxruntime-web/ort-wasm-simd-threaded.asyncify.mjs?url'
+import ortWebGPUWasmURL from 'onnxruntime-web/ort-wasm-simd-threaded.asyncify.wasm?url'
 import { PreTrainedTokenizer, env } from '@huggingface/transformers'
 
 const EMBEDDING_MODEL_ID = 'onnx-community/Qwen3-Embedding-0.6B-ONNX'
@@ -57,6 +59,8 @@ env.useBrowserCache = false
 
 ort.env.wasm.proxy = false
 ort.env.wasm.numThreads = 1
+// Vite fingerprints these assets; ONNX Runtime cannot infer their URLs from the worker bundle.
+ort.env.wasm.wasmPaths = { mjs: ortWebGPUModuleURL, wasm: ortWebGPUWasmURL }
 ort.env.logLevel = 'error'
 ort.env.debug = false
 ort.env.webgpu.powerPreference = 'high-performance'
@@ -133,10 +137,11 @@ function enqueueInference(task) {
 async function handleEmbedRequest(id, payload) {
   if (!embedder) throw new Error('Embedding model is not loaded')
   const text = payload.text || ''
+  const bypassCache = payload.bypassCache === true
   const startedAt = performance.now()
   const cacheStartedAt = performance.now()
-  const cacheKey = await embeddingCacheKey(text)
-  const cached = await embeddingCacheGet(cacheKey)
+  const cacheKey = bypassCache ? '' : await embeddingCacheKey(text)
+  const cached = bypassCache ? null : await embeddingCacheGet(cacheKey)
   const cacheLookupMs = elapsedMs(cacheStartedAt)
   if (cached) {
     self.postMessage({
@@ -155,9 +160,10 @@ async function handleEmbedRequest(id, payload) {
   }
   const embedded = await withTimeout(embedTextWithTimings(text), EMBED_RUN_TIMEOUT_MS, 'embedding run')
   const cacheStoreStartedAt = performance.now()
-  await embeddingCachePut(cacheKey, embedded.vector)
+  if (!bypassCache) await embeddingCachePut(cacheKey, embedded.vector)
   const timings = embeddingTimings({
     cache_hit: false,
+    cache_bypassed: bypassCache,
     cache_lookup_ms: cacheLookupMs,
     cache_store_ms: elapsedMs(cacheStoreStartedAt),
     ...embedded.timings,

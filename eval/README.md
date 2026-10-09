@@ -65,3 +65,36 @@ go run ./cmd/agent-bench -chunks 100000 -dimensions 384 -queries 1000 -top-k 10 
 ```
 
 本机完整运行记录及适用范围见仓库根目录 `README.md` 的“Agent Eval 与本机性能”章节。
+
+## 浏览器 WebGPU 分层 Eval
+
+`eval/run-webgpu-eval.mjs` 在真实 Chrome WebGPU worker 中运行前端的 ONNX Q4F16 Embedding 与 Rerank。它把同一批 40 条合成证据嵌入为 1024 维向量，只将 20 条检索任务的 `user_prompt` 嵌入为查询，用**精确余弦相似度**取 Top10，再将这 10 条交给 WebGPU Rerank。评测请求明确绕过文本向量缓存，模型文件仍可复用浏览器 OPFS 缓存。此评测不经过 SQLite、USearch、FTS5、权限过滤或 Chat Agent；不能当作正式混合检索或端到端任务成功率。
+
+先在 `web/` 安装依赖（包含 `playwright-core`），再开两个 PowerShell 终端：
+
+```powershell
+# 终端 1：从 Hugging Face 官方源获取缺失的公开模型文件
+cd web
+$env:VITE_HF_PROXY_TARGET = 'https://huggingface.co'
+npm run dev -- --port 5174
+```
+
+```powershell
+# 终端 2：在仓库根目录运行；需要本机已安装 Chrome，首次约下载 1.3 GB 模型
+node eval/run-webgpu-eval.mjs
+```
+
+模型下载很慢时，可把已有的 **bge-reranker-v2-m3-ONNX Q4F16** 文件路径设为 `WEBGPU_EVAL_RERANK_MODEL_PATH`，运行 `node eval/webgpu-model-proxy.mjs`，并将终端 1 的 `VITE_HF_PROXY_TARGET` 改成 `http://127.0.0.1:5175`。代理仅从该路径读取指定模型文件，其余公开模型文件仍从 Hugging Face 获取。`CHROME_PATH`、`WEBGPU_EVAL_PROFILE` 和 `WEBGPU_EVAL_OUTPUT` 可分别指定 Chrome、浏览器缓存目录和结果目录。默认逐题结果与报告保存在被 Git 忽略的 `eval/.local/webgpu/`；只重新计分可运行 `node eval/run-webgpu-eval.mjs --score-only`。
+
+2026-10-09 在 Chrome 154、NVIDIA Lovelace 适配器上实测两个 Q4F16 模型，逐题结果、计分报告与计时记录分别见 [`results/retrieval-eval-webgpu.jsonl`](results/retrieval-eval-webgpu.jsonl)、[`results/retrieval-eval-webgpu-report.json`](results/retrieval-eval-webgpu-report.json)、[`results/retrieval-eval-webgpu-run.json`](results/retrieval-eval-webgpu-run.json)：
+
+| 指标 | 本次结果 |
+| --- | --- |
+| Retrieval Recall@1 / @3 / @5 / @10 | 20/40（50%） / 40/40（100%） / 40/40（100%） / 40/40（100%） |
+| Rerank 命中率@1 / @3 / @5 / @10 | 20/20（100%） / 20/20（100%） / 20/20（100%） / 20/20（100%） |
+| Embedding 用户问题 P50 / P95 | 196.9 / 207.1 ms（20 条，文本向量缓存绕过） |
+| Embedding 吞吐 | 4.179 条/s（40 条证据＋20 条问题，模型加载不计入） |
+| Rerank 10 候选 P50 / P95 | 120.1 / 164.1 ms（20 次） |
+| Rerank 吞吐 | 75.472 文档/s（200 个候选，模型加载不计入） |
+
+模型文件在计时前已缓存在 OPFS；本次 Embedding 模型初始化为 2052 ms，不包含首次下载。Rerank 每次处理 10 个候选，而根目录的 CPU/CUDA/Vulkan GGUF 基准每次处理 8 个候选，模型格式与执行路径也不同，因此延迟数字不应直接当作同条件速度比。Tool Call、Citation Accuracy 与 Task Success Rate 本次未执行，计为 N/A。

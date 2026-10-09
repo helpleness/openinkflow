@@ -341,6 +341,8 @@ go run .
 | CUDA | 11.231 / 15.245 ms | 86.557 条/s | 32.496 / 34.311 ms | 248.481 文档/s |
 | Vulkan | 14.934 / 16.522 ms | 66.459 条/s | 48.658 / 106.289 ms | 139.378 文档/s |
 
+另在 Chrome 154 的 NVIDIA Lovelace WebGPU 适配器上运行前端 ONNX Q4F16 模型：同一批 20 条自然问题的精确余弦 Top10 为 Retrieval Recall@1 **20/40（50%）**、@3/@5/@10 **40/40（100%）**，Rerank 命中率@1 **20/20（100%）**；Embedding 问题推理 P50/P95 **196.9/207.1 ms**，10 候选 Rerank P50/P95 **120.1/164.1 ms**。逐题与计时数据、复现步骤见 [`eval/README.md`](eval/README.md)。这项 WebGPU 测试绕过向量结果缓存，只测精确余弦＋重排，不含 USearch、FTS5 或 Agent；其 ONNX 模型格式与 10 候选批次也不同于上表 GGUF 的 8 候选基准，延迟不能直接作同条件速度比。
+
 原始数据见 [`eval/results/`](eval/results/)。Embedding 输出为 1024 维，模型分别是 `qwen3-embedding-0.6b-q4_k_m.gguf` 与 `bge-reranker-v2-m3-Q4_K_M.gguf`。当前受控写作的单轮工具批次在编排器内串行执行，**单个 Run 同时执行的 Tool 数量为 1**；跨 Run 并发受共享工作池约束，本次未做压力测试。Agent Run 从检查点恢复到再次完成工具步骤的时间也未测量，因为本机没有配置完整的 Chat LLM 与持久化写作任务，因此记为 **N/A**。
 
 ## 配置与安全边界

@@ -6,6 +6,7 @@ import vue from '@vitejs/plugin-vue'
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
   const apiProxyTarget = env.VITE_API_PROXY_TARGET || 'https://doc.inkflowai.top'
+  const hfProxyTarget = env.VITE_HF_PROXY_TARGET || apiProxyTarget
 
   return {
     plugins: [vue()],
@@ -18,8 +19,12 @@ export default defineConfig(({ mode }) => {
           ws: true,
         },
         '/hf-mirror': {
-          target: apiProxyTarget,
+          target: hfProxyTarget,
           changeOrigin: true,
+          followRedirects: Boolean(env.VITE_HF_PROXY_TARGET),
+          rewrite: env.VITE_HF_PROXY_TARGET
+            ? (path) => path.replace(/^\/hf-mirror/, '')
+            : undefined,
         },
       },
     },
