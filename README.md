@@ -199,6 +199,15 @@ flowchart TB
 
 查询缓存键由当前用户、工具名和参数共同生成；相同查询的并发未命中由 `singleflight` 合并。Mutation 工具不会读取或写入查询缓存，只有执行成功后才会清空查询缓存。所有实际工具调用仍需经过公平队列、工作协程池和全局限流器。
 
+### 核心实现
+
+- [Agent Orchestrator](utils/toolchain/orchestrator/orchestrator.go)
+- [Tool Registry](utils/toolchain/orchestrator/registry.go)
+- [Tool Dispatcher](utils/toolchain/executor/dispatcher.go)
+- [Durable Writing Run](service/officialdoc/writing_run.go)
+- [Hybrid Knowledge Search](service/officialdoc/knowledge_search.go)
+- [Agent Eval](eval/README.md)
+
 主业务链路如下：
 
 ```text
