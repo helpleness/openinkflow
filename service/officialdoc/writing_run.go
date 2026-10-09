@@ -372,6 +372,15 @@ func (service *WritingRunService) composeDocument(ctx context.Context, runID uin
 		},
 		OnEvent: func(event string, payload any) {
 			switch event {
+			case "llm_done":
+				if data, ok := payload.(map[string]any); ok && data["phase"] == "orchestrator" && data["has_tool_calls"] == false && data["content_runes"] == 0 {
+					_ = service.appendMessage(context.Background(), run.ID, round, "system", "", "正文阶段模型返回空内容，准备使用已冻结证据重试。")
+				}
+			case "llm_error":
+				if data, ok := payload.(map[string]any); ok && data["phase"] == "orchestrator" {
+					message := fmt.Sprintf("正文阶段模型请求失败：%v；max_tokens=%v，finish_reason=%v，输出 tokens=%v", data["error"], data["max_tokens"], data["finish_reason"], data["output_tokens"])
+					_ = service.appendMessage(context.Background(), run.ID, round, "system", "", message)
+				}
 			case "tool_done":
 				if trace, ok := payload.(orchestrator.Trace); ok && (trace.ToolName == writingKnowledgeSearchTool || trace.ToolName == writingEvidenceCompressionTool) {
 					_ = service.appendTrace(context.Background(), run.ID, round, trace)

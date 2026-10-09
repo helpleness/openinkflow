@@ -56,6 +56,26 @@ func TestRunWithToolsThroughConfiguredProvider(t *testing.T) {
 	}
 }
 
+func TestOutputLimitEventReportsActualModelLimit(t *testing.T) {
+	var failure map[string]any
+	provider := &scriptedProvider{chat: func(context.Context, domainllm.ChatRequest) (*domainllm.ChatResponse, error) {
+		return &domainllm.ChatResponse{FinishReason: "length", Usage: domainllm.Usage{OutputTokens: 8192}}, nil
+	}}
+	state := testRunState(t, NewRegistry(), RunOptions{
+		LLM: &llmutil.GenerateOptions{LLM: &config.LLM{ProviderType: "openai", ModelDefault: "test"}, MaxTokens: 8192},
+		OnEvent: func(event string, payload any) {
+			if event == "llm_error" {
+				failure, _ = payload.(map[string]any)
+			}
+		},
+	}, provider)
+	_, err := state.requestModelAttempt(0, 1, state.messages)
+	var limit *domainllm.OutputLimitError
+	if !errors.As(err, &limit) || failure["max_tokens"] != 8192 || failure["finish_reason"] != "length" || failure["output_tokens"] != int64(8192) {
+		t.Fatalf("output limit diagnosis: err=%v event=%v", err, failure)
+	}
+}
+
 type scriptedProvider struct {
 	requests []domainllm.ChatRequest
 	chat     func(context.Context, domainllm.ChatRequest) (*domainllm.ChatResponse, error)

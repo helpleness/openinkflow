@@ -75,12 +75,20 @@ func (state *runState) requestModelAttempt(step, attempt int, messages []domainl
 		"attempt":    attempt,
 		"elapsed_ms": time.Since(startedAt).Milliseconds(),
 	}
+	if request.MaxTokens != nil {
+		payload["max_tokens"] = *request.MaxTokens
+	}
+	if response != nil {
+		payload["finish_reason"] = response.FinishReason
+		payload["output_tokens"] = response.Usage.OutputTokens
+	}
 	if err != nil {
 		payload["error"] = err.Error()
 		emitRunEvent(state.config, "llm_error", payload)
 		return domainllm.Message{}, err
 	}
 	payload["has_tool_calls"] = len(message.ToolCalls) > 0
+	payload["content_runes"] = len([]rune(message.Content))
 	emitRunEvent(state.config, "llm_done", payload)
 	return message, nil
 }
