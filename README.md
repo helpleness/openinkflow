@@ -22,12 +22,12 @@ InkFlow 是一个面向组织协作的公文写作与知识库系统。它把资
 ### 知识库与检索
 
 - 导入 Markdown、DOCX、XLSX、PPTX 和 PDF，单文件上限 200 MB。
-- PDF 优先通过 Poppler 提取正文；DOCX、XLSX、PPTX 直接解析 OOXML，并统一规范化为 Markdown。
+- PDF 优先通过 `pdftotext` 提取正文（Web/Docker 使用 Poppler，Windows 桌面安装包携带 Xpdf）；DOCX、XLSX、PPTX 直接解析 OOXML，并统一规范化为 Markdown。
 - 使用 ONNX Runtime 与 `PP-DocLayout-S` 检测图片中的文字、表格、标题、公式和图表区域；命中后可调用用户配置的视觉模型提取文字或生成结构摘要。
 - 文档上传后进入后台处理，前端通过 SSE 展示解析、图片处理、切片和索引进度；失败文档可以重新解析或重建索引。
 - 向量召回与词法召回各自获取候选，去重后统一交给 Rerank 排序。单次候选总量最多 24 条，不使用手写分数代替重排。
 - PostgreSQL 部署使用 pgvector；桌面 SQLite 使用 FTS5 与 USearch HNSW。
-- 原始文件和嵌入图片保存在私有 OSS，下载前由后端校验成员身份并生成短时签名地址。
+- Web 部署将原始文件和嵌入图片保存在私有 OSS，下载前由后端校验成员身份并生成短时签名地址；未配置 OSS 的桌面版使用本机私有目录，下载同样经过后端鉴权。
 
 ### 受控写作
 
@@ -135,6 +135,7 @@ flowchart TB
         SQLite[(SQLite + FTS5<br/>桌面端)]
         USearch[(USearch HNSW<br/>桌面端)]
         OSS[(私有 OSS<br/>原始文件与图片)]
+        LocalFiles[(本机私有文件目录<br/>桌面端)]
     end
 
     System --> PG
@@ -143,6 +144,7 @@ flowchart TB
     Chat --> SQLite
     Chat --> USearch
     Ingest --> OSS
+    Ingest --> LocalFiles
     Ingest --> PG
     Ingest --> SQLite
     Embed --> PG
@@ -313,7 +315,7 @@ go run .
 .\scripts\build_installer.ps1 -Version 0.1.0 -InferenceProvider local -Backend cpu
 ```
 
-也可以将 `-Backend` 改为 `cuda` 或 `vulkan`；对应构建机和运行机必须具备相应 SDK、驱动及运行库。桌面运行数据默认保存在 `%LOCALAPPDATA%\InkFlow`，升级不会覆盖用户配置和数据库。
+也可以将 `-Backend` 改为 `cuda` 或 `vulkan`；对应构建机和运行机必须具备相应 SDK、驱动及运行库。桌面运行数据默认保存在 `%LOCALAPPDATA%\InkFlow`，未配置 OSS 时知识库原文件保存在其 `knowledge-objects` 子目录。升级不会覆盖用户配置、数据库和知识库文件；备份或迁移时需一并保留数据库、向量索引和该目录。安装包不含 OSS 账号或密钥，本地文件不会自动同步到线上。
 
 ## Agent Eval 与本机性能
 
@@ -350,10 +352,10 @@ go run .
 - `config.example.yaml` 和 `config.docker.example.yaml` 只保存示例值。
 - `config.yaml`、`config.docker.yaml`、`.env`、`docs/`、日志、模型文件和构建产物均被忽略。
 - Docker 中的 PostgreSQL 密码和 JWT 密钥通过 `INKFLOW_PGSQL_PASSWORD`、`INKFLOW_AUTH_JWT_SECRET` 注入。
-- 知识库导入依赖私有对象存储；没有配置 OSS 时服务可以启动，但上传和原文件下载不可用。
+- Web 部署的知识库导入依赖私有对象存储；没有配置 OSS 时服务可以启动，但上传和原文件下载不可用。桌面版未配置 OSS 时改用本机私有文件目录。
 - 视觉分析、云端 LLM 和远程 MCP 只会在用户显式配置后使用；相关内容会发送到对应的第三方服务。
 - MCP 端点必须通过公网 HTTPS 校验。服务不会根据数据库配置启动任意本地进程或执行 Shell 命令。
-- PDF 正文解析依赖 Poppler；Docker 镜像已包含 `pdftotext`。PDF 导出还需要另外安装 LibreOffice。
+- PDF 正文解析依赖 `pdftotext`；Docker 镜像已包含 Poppler，Windows 桌面安装包携带 Xpdf。PDF 导出还需要另外安装 LibreOffice。
 - Rerank 是混合检索和长期对话记忆筛选的一部分；部署前应确保本地、浏览器或远端重排能力可用。
 
 ## 项目结构

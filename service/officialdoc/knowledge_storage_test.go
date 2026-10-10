@@ -132,6 +132,42 @@ func TestKnowledgeDownloadSignsObjectForAuthorizedMember(t *testing.T) {
 	}
 }
 
+func TestDesktopKnowledgeDownloadUsesAuthenticatedLocalContent(t *testing.T) {
+	db := setupKnowledgeStorageTest(t)
+	seedKnowledgeOrganization(t, db, 1, 10, 100)
+	key := testKnowledgeKey(t, 10)
+	document := model.KnowledgeDocument{TenantID: 1, OrganizationID: 10, CreatedBy: 100, Name: "通知", OriginalName: "通知.md", ContentType: "text/markdown", ObjectKey: key, SHA256: strings.Repeat("a", 64), Status: "ready"}
+	if err := db.Create(&document).Error; err != nil {
+		t.Fatal(err)
+	}
+	local, err := storage.NewLocal(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	global.GVA_OBJECT_STORAGE = local
+	content := []byte("# 通知")
+	if err := local.Upload(context.Background(), key, bytes.NewReader(content), int64(len(content)), "text/markdown"); err != nil {
+		t.Fatal(err)
+	}
+	service := &KnowledgeSearchService{}
+	result, err := service.DownloadDocument(context.Background(), 1, document.ID, 100)
+	if err != nil || !result.Local || result.URL != "" {
+		t.Fatalf("desktop download metadata = %#v, %v", result, err)
+	}
+	reader, filename, contentType, err := service.OpenDocumentSource(context.Background(), 1, document.ID, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := io.ReadAll(reader)
+	reader.Close()
+	if err != nil || !bytes.Equal(got, content) || filename != "通知.md" || contentType != "text/markdown" {
+		t.Fatalf("desktop downloaded content = %q, filename=%q, content-type=%q, err=%v", got, filename, contentType, err)
+	}
+	if _, _, _, err := service.OpenDocumentSource(context.Background(), 1, document.ID, 101); !errors.Is(err, commonResponse.ErrForbidden) {
+		t.Fatalf("nonmember download error = %v, want forbidden", err)
+	}
+}
+
 func TestKnowledgeDownloadRejectsMemberFromAnotherOrganization(t *testing.T) {
 	db := setupKnowledgeStorageTest(t)
 	seedKnowledgeOrganization(t, db, 1, 10, 100)

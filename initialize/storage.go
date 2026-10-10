@@ -2,6 +2,8 @@ package initialize
 
 import (
 	"errors"
+	"path/filepath"
+	"strings"
 
 	"InkFlow/global"
 	"InkFlow/utils/storage"
@@ -9,9 +11,8 @@ import (
 	"go.uber.org/zap"
 )
 
-// InitializeObjectStorage creates one OSS client for the process. Missing OSS
-// settings do not prevent a desktop/local server from starting, but uploads are
-// explicitly rejected until private storage has been configured.
+// InitializeObjectStorage uses configured OSS when available. Desktop installs
+// without OSS credentials keep their knowledge objects beside the local DB.
 func InitializeObjectStorage() {
 	configured := global.GVA_CONFIG.OSS
 	objectStorage, err := storage.NewOSS(storage.OSSConfig{
@@ -22,6 +23,16 @@ func InitializeObjectStorage() {
 		AccessKeySecret: configured.AccessKeySecret,
 	})
 	if errors.Is(err, storage.ErrNotConfigured) {
+		if strings.EqualFold(global.GVA_CONFIG.System.Env, "desktop") {
+			root := filepath.Join(global.GVA_CONFIG.System.DataDir, "knowledge-objects")
+			localStorage, localErr := storage.NewLocal(root)
+			if localErr != nil {
+				panic(localErr)
+			}
+			global.GVA_OBJECT_STORAGE = localStorage
+			global.GVA_LOG.Info("桌面知识库文件存储已初始化", zap.String("path", root))
+			return
+		}
 		global.GVA_LOG.Warn("OSS 未配置，知识库上传和原文件下载不可用", zap.Error(err))
 		return
 	}

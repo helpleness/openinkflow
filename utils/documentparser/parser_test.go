@@ -108,7 +108,7 @@ func TestPDFParserRejectsSparseLargeDocumentWithoutPoppler(t *testing.T) {
 	t.Cleanup(func() { extractPDFText = original })
 
 	_, err := New().Parse(context.Background(), "ninety-pages.pdf", bytes.NewReader(sparseMultiPagePDFFixture(90)))
-	if err == nil || !strings.Contains(err.Error(), "未安装 Poppler pdftotext") {
+	if err == nil || !strings.Contains(err.Error(), "未找到 pdftotext") {
 		t.Fatalf("error = %v, want sparse multi-page PDF rejection", err)
 	}
 }

@@ -3,6 +3,7 @@ package officialdoc
 import (
 	"context"
 	"fmt"
+	"io"
 	"strings"
 	"time"
 
@@ -99,6 +100,9 @@ func (service *KnowledgeSearchService) DownloadDocument(ctx context.Context, ten
 	if err != nil {
 		return response.KnowledgeDocumentDownload{}, err
 	}
+	if _, local := objectStore.(*storage.LocalStorage); local {
+		return response.KnowledgeDocumentDownload{Local: true}, nil
+	}
 	expiration, err := knowledgeSignedURLExpiration()
 	if err != nil {
 		return response.KnowledgeDocumentDownload{}, err
@@ -109,6 +113,30 @@ func (service *KnowledgeSearchService) DownloadDocument(ctx context.Context, ten
 		return response.KnowledgeDocumentDownload{}, fmt.Errorf("生成文档下载地址失败: %w", err)
 	}
 	return response.KnowledgeDocumentDownload{URL: signedURL, ExpiresAt: time.Now().Add(expiration)}, nil
+}
+
+// OpenDocumentSource streams the original file only after tenant and membership
+// checks. The object key is never accepted from a caller.
+func (service *KnowledgeSearchService) OpenDocumentSource(ctx context.Context, tenantID, documentID, userID uint) (io.ReadCloser, string, string, error) {
+	var document model.KnowledgeDocument
+	if err := global.GVA_DB.WithContext(ctx).Where("id = ? AND tenant_id = ?", documentID, tenantID).First(&document).Error; err != nil {
+		return nil, "", "", err
+	}
+	if err := ensureKnowledgeMember(ctx, tenantID, document.OrganizationID, userID); err != nil {
+		return nil, "", "", err
+	}
+	if !storage.IsKnowledgeObjectKeyForOrganization(document.OrganizationID, document.ObjectKey) {
+		return nil, "", "", fmt.Errorf("文档对象路径无效，无法提供下载")
+	}
+	objectStore, err := knowledgeObjectStorage()
+	if err != nil {
+		return nil, "", "", err
+	}
+	reader, err := objectStore.Download(ctx, document.ObjectKey)
+	if err != nil {
+		return nil, "", "", err
+	}
+	return reader, document.OriginalName, document.ContentType, nil
 }
 
 func (service *KnowledgeSearchService) DeleteDocument(ctx context.Context, tenantID, documentID, userID uint) error {

@@ -1,6 +1,6 @@
 <script setup>
 import { onBeforeUnmount, ref, watch } from 'vue'
-import { deleteKnowledgeDocument, getKnowledgeDocument, getKnowledgeDocumentDownload, importKnowledgeDocument, listKnowledgeDocuments, reindexKnowledgeDocument, reprocessKnowledgeDocument, streamKnowledgeDocument } from '../../officialdocApi'
+import { deleteKnowledgeDocument, downloadKnowledgeDocumentContent, getKnowledgeDocument, getKnowledgeDocumentDownload, importKnowledgeDocument, listKnowledgeDocuments, reindexKnowledgeDocument, reprocessKnowledgeDocument, streamKnowledgeDocument } from '../../officialdocApi'
 
 const props = defineProps({ tenantId: { type:Number, required:true }, organizationId: { type:Number, required:true } })
 const emit = defineEmits(['notice'])
@@ -71,7 +71,7 @@ async function upload() {
   } catch (error) { showError(error) } finally { importing.value=false }
 }
 async function inspect(document) { busyDocumentId.value=document.id; try { selectedDetail.value=await getKnowledgeDocument(props.tenantId,document.id) } catch (error) { showError(error) } finally { busyDocumentId.value=0 } }
-async function download(document) { busyDocumentId.value=document.id; try { const result=await getKnowledgeDocumentDownload(props.tenantId,document.id); window.open(result.url, '_blank', 'noopener,noreferrer') } catch (error) { showError(error) } finally { busyDocumentId.value=0 } }
+async function download(document) { busyDocumentId.value=document.id; try { const result=await getKnowledgeDocumentDownload(props.tenantId,document.id); if (result.local) await downloadKnowledgeDocumentContent(props.tenantId, document.id, document.original_name || document.name); else window.open(result.url, '_blank', 'noopener,noreferrer') } catch (error) { showError(error) } finally { busyDocumentId.value=0 } }
 async function reindex(document) { busyDocumentId.value=document.id; try { const result=await reindexKnowledgeDocument(props.tenantId,document.id); replaceDocument(result); emit('notice',{ text:result?.failure_reason ? '已记录索引失败：' + result.failure_reason : '索引任务已完成。' }) } catch (error) { showError(error) } finally { busyDocumentId.value=0 } }
 async function reprocess(document) { busyDocumentId.value=document.id; try { const result=await reprocessKnowledgeDocument(props.tenantId,document.id); replaceDocument(result); watchDocument(result); emit('notice',{ text:'已重新排队解析原文件。' }) } catch (error) { showError(error) } finally { busyDocumentId.value=0 } }
 async function remove(document) { if (!window.confirm('确定删除“' + (document.original_name || document.name) + '”及其切片吗？')) return; busyDocumentId.value=document.id; try { await deleteKnowledgeDocument(props.tenantId,document.id); stopDocumentStream(document.id); documents.value=documents.value.filter(item => item.id !== document.id); if (selectedDetail.value?.document?.id === document.id) selectedDetail.value=null; emit('notice',{ text:'文档、切片和检索索引已删除。' }) } catch (error) { showError(error) } finally { busyDocumentId.value=0 } }

@@ -18,6 +18,10 @@ export function getKnowledgeDocumentDownload(tenantID, documentID) {
   return apiGet(`${API_PREFIX}/officialdoc/knowledge-documents/${documentID}/download`, {}, tenantOptions(tenantID))
 }
 
+export function downloadKnowledgeDocumentContent(tenantID, documentID, filename) {
+  return apiDownload(`${API_PREFIX}/officialdoc/knowledge-documents/${documentID}/download?content=1`, filename, tenantOptions(tenantID))
+}
+
 export function importKnowledgeDocument(tenantID, organizationID, file) {
   const form = new FormData()
   form.set('organization_id', String(organizationID))

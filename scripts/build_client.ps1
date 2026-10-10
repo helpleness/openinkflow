@@ -179,6 +179,7 @@ function Sync-BackendRuntimeFiles {
     $knownRuntimeFiles = @(
         "llama.dll", "libllama.dll", "ggml.dll", "ggml-base.dll", "ggml-cpu.dll",
         "ggml-vulkan.dll", "ggml-cuda.dll", "libgcc_s_seh-1.dll",
+        "cublas64_13.dll", "cublasLt64_13.dll", "cudart64_13.dll",
         "libstdc++-6.dll", "libwinpthread-1.dll", "concrt140.dll",
         "msvcp140.dll", "msvcp140_1.dll", "msvcp140_2.dll",
         "msvcp140_atomic_wait.dll", "msvcp140_codecvt_ids.dll",
@@ -198,6 +199,26 @@ function Sync-BackendRuntimeFiles {
         throw "No runtime DLLs were produced for the $SelectedBackend backend in $runtimeDir."
     }
     Copy-Item -LiteralPath $runtimeFiles.FullName -Destination $Destination -Force
+
+    if ($SelectedBackend -eq "cuda") {
+        $cachePath = Join-Path $repoRoot "llama\cmake-build-cuda\CMakeCache.txt"
+        if (-not (Test-Path -LiteralPath $cachePath)) {
+            throw "CUDA CMake cache is missing: $cachePath"
+        }
+        $cacheText = Get-Content -LiteralPath $cachePath -Raw
+        $rootMatch = [regex]::Match($cacheText, '(?m)^CUDAToolkit_ROOT[^=]*=(.+)$')
+        if (-not $rootMatch.Success) {
+            throw "Cannot determine the CUDA Toolkit used by the backend build."
+        }
+        $cudaRuntimeDir = Join-Path $rootMatch.Groups[1].Value.Trim() "bin\x64"
+        foreach ($name in @("cublas64_13.dll", "cublasLt64_13.dll", "cudart64_13.dll")) {
+            $source = Join-Path $cudaRuntimeDir $name
+            if (-not (Test-Path -LiteralPath $source)) {
+                throw "Required CUDA runtime is missing: $source"
+            }
+            Copy-Item -LiteralPath $source -Destination $Destination -Force
+        }
+    }
 
     $redistRoots = @(
     $env:VCToolsRedistDir,
@@ -292,6 +313,48 @@ $outputDir = Split-Path -Parent $outputPath
 if ($outputDir) {
     New-Item -ItemType Directory -Force -Path $outputDir | Out-Null
 }
+
+function Sync-PDFTextTool {
+    param([Parameter(Mandatory = $true)][string]$Destination)
+
+    $version = "4.06"
+    $expectedHash = "2B6CA45DA794E7854A6468FD6C8063FDE62701F001CE03FA4F603EAB7E15A0B6"
+    $downloadDir = Join-Path $repoRoot "build\downloads"
+    $archive = Join-Path $downloadDir "xpdf-tools-win-$version.zip"
+    $extracted = Join-Path $downloadDir "xpdf-tools-win-$version"
+    if (-not (Test-Path -LiteralPath $archive) -or (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash -ne $expectedHash) {
+        New-Item -ItemType Directory -Force -Path $downloadDir | Out-Null
+        Invoke-WebRequest -Uri "https://dl.xpdfreader.com/xpdf-tools-win-$version.zip" -OutFile $archive
+    }
+    if ((Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash -ne $expectedHash) {
+        throw "Xpdf $version archive checksum mismatch: $archive"
+    }
+    if (-not (Test-Path -LiteralPath (Join-Path $extracted "bin64\pdftotext.exe"))) {
+        Expand-Archive -LiteralPath $archive -DestinationPath $downloadDir -Force
+    }
+    $binary = Join-Path $extracted "bin64\pdftotext.exe"
+    if ($env:INKFLOW_PDF_TOOLS_DIR) {
+        $binary = Join-Path $env:INKFLOW_PDF_TOOLS_DIR "pdftotext.exe"
+    }
+    if (-not (Test-Path -LiteralPath $binary)) {
+        throw "Desktop PDF text extractor is missing: $binary"
+    }
+    $targetDir = Join-Path $Destination "pdf-tools"
+    New-Item -ItemType Directory -Force -Path $targetDir | Out-Null
+    Get-ChildItem -LiteralPath $targetDir -File | Remove-Item -Force
+    Copy-Item -LiteralPath $binary -Destination (Join-Path $targetDir "pdftotext.exe") -Force
+    foreach ($name in @("README", "COPYING", "COPYING3")) {
+        Copy-Item -LiteralPath (Join-Path $extracted $name) -Destination (Join-Path $targetDir $name) -Force
+    }
+    Copy-Item -LiteralPath (Join-Path $extracted "doc\pdftotext.txt") -Destination (Join-Path $targetDir "pdftotext.txt") -Force
+    Copy-Item -LiteralPath (Join-Path $repoRoot "third_party\xpdf-windows\SOURCE.txt") -Destination (Join-Path $targetDir "SOURCE.txt") -Force
+    $versionOutput = (& (Join-Path $targetDir "pdftotext.exe") -v 2>&1 | Out-String)
+    if ($versionOutput -notmatch "pdftotext version $version") {
+        throw "Bundled pdftotext cannot start from $targetDir."
+    }
+    # Xpdf's version flag prints successfully but exits with a nonzero status.
+    $global:LASTEXITCODE = 0
+}
 $desktopConfigTemplate = Join-Path $repoRoot "config.client.yaml"
 $desktopConfigOutput = Join-Path $outputDir "config.yaml"
 if (-not (Test-Path -LiteralPath $desktopConfigTemplate)) {
@@ -348,6 +411,7 @@ try {
 }
 
 Sync-BackendRuntimeFiles -SelectedBackend $Backend -Destination $outputDir
+Sync-PDFTextTool -Destination $outputDir
 Copy-Item -LiteralPath $onnxRuntimeDLL -Destination $outputDir -Force
 $backendMarker = [IO.Path]::ChangeExtension($outputPath, ".backend")
 Set-Content -LiteralPath $backendMarker -Value $Backend -Encoding Ascii

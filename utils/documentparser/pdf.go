@@ -33,7 +33,7 @@ type pdfOperand struct {
 	text []byte
 }
 
-// parsePDF uses Poppler when it is available. PDF text extraction requires
+// parsePDF uses pdftotext when it is available. PDF text extraction requires
 // interpreting page resources, CMaps and object streams, which cannot be done
 // reliably by scanning BT/ET tokens. The small built-in reader below remains as
 // a compatibility fallback for lightweight native installs and test fixtures.
@@ -55,9 +55,9 @@ func parsePDF(ctx context.Context, data []byte) (Result, error) {
 	if pdfTextLooksTruncated(text, pages) {
 		characters := pdfTextRuneCount(text)
 		if popplerAvailable {
-			return Result{}, fmt.Errorf("PDF 共 %d 页，但 Poppler 只提取到 %d 个可见字符；文本层不完整，已拒绝建立不完整索引", pages, characters)
+			return Result{}, fmt.Errorf("PDF 共 %d 页，但 pdftotext 只提取到 %d 个可见字符；文本层不完整，已拒绝建立不完整索引", pages, characters)
 		}
-		return Result{}, fmt.Errorf("PDF 共 %d 页，但只提取到 %d 个可见字符；服务未安装 Poppler pdftotext，已拒绝建立不完整索引", pages, characters)
+		return Result{}, fmt.Errorf("PDF 共 %d 页，但只提取到 %d 个可见字符；未找到 pdftotext，已拒绝建立不完整索引", pages, characters)
 	}
 	text = NormalizeMarkdownForChunker(text)
 	if text != "" {

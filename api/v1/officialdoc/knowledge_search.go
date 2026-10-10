@@ -2,6 +2,7 @@ package officialdoc
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"strconv"
 	"time"
@@ -52,8 +53,30 @@ func (api *KnowledgeSearchApi) DownloadDocument(c *gin.Context) {
 		commonResponse.BadRequest("无效的文档 ID", c)
 		return
 	}
+	if c.Query("content") == "1" {
+		api.streamDocumentContent(c, uint(documentID))
+		return
+	}
 	download, err := service.ServiceGroupApp.KnowledgeSearchService.DownloadDocument(c.Request.Context(), ginctx.CurrentTenantID(c), uint(documentID), ginctx.CurrentUserID(c))
 	commonResponse.Respond(download, err, commonResponse.ErrForbidden, c)
+}
+
+func (api *KnowledgeSearchApi) streamDocumentContent(c *gin.Context, documentID uint) {
+	reader, _, contentType, err := service.ServiceGroupApp.KnowledgeSearchService.OpenDocumentSource(c.Request.Context(), ginctx.CurrentTenantID(c), documentID, ginctx.CurrentUserID(c))
+	if err != nil {
+		commonResponse.Respond(nil, err, commonResponse.ErrForbidden, c)
+		return
+	}
+	defer reader.Close()
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+	c.Header("Cache-Control", "no-store")
+	c.Header("X-Content-Type-Options", "nosniff")
+	c.Header("Content-Disposition", "attachment")
+	c.Header("Content-Type", contentType)
+	c.Status(http.StatusOK)
+	_, _ = io.Copy(c.Writer, reader)
 }
 
 func (api *KnowledgeSearchApi) ReindexDocument(c *gin.Context) {

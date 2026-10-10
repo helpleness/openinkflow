@@ -14,6 +14,7 @@ $packageDir = Join-Path $repoRoot "build\package"
 $installerScript = Join-Path $repoRoot "installer\InkFlow.iss"
 $setupExe = Join-Path $packageDir "InkFlow.exe"
 $backendMarker = Join-Path $packageDir "InkFlow.backend"
+$desktopConfig = Join-Path $packageDir "config.yaml"
 
 function Resolve-InferenceProvider {
     param([string]$RequestedProvider)
@@ -120,6 +121,13 @@ if (-not (Test-Path -LiteralPath $setupExe)) {
 if (-not (Test-Path -LiteralPath $backendMarker)) {
     throw "Client backend marker is missing: $backendMarker. Rebuild the client before creating the installer."
 }
+if (-not (Test-Path -LiteralPath $desktopConfig)) {
+    throw "Desktop configuration is missing: $desktopConfig. Rebuild the client."
+}
+$desktopConfigText = Get-Content -LiteralPath $desktopConfig -Raw
+if ($desktopConfigText -match '(?im)^\s*(access-key-id|access-key-secret)\s*:') {
+    throw "Desktop package contains OSS credentials. Remove them before creating an installer."
+}
 $onnxRuntime = Join-Path $packageDir "onnxruntime.dll"
 $onnxBridge = Join-Path $packageDir "InkFlowLayout.dll"
 $ocrModel = Join-Path $packageDir "ocr\pp_doclayout_s.onnx"
@@ -127,6 +135,13 @@ $ocrManifest = Join-Path $packageDir "ocr\manifest.json"
 foreach ($requiredOCRPath in @($onnxRuntime, $onnxBridge, $ocrModel, $ocrManifest)) {
     if (-not (Test-Path -LiteralPath $requiredOCRPath)) {
         throw "ONNX layout runtime is missing: $requiredOCRPath. Rebuild the client package."
+    }
+}
+$pdfToolDir = Join-Path $packageDir "pdf-tools"
+foreach ($name in @("pdftotext.exe", "README", "COPYING", "COPYING3", "pdftotext.txt", "SOURCE.txt")) {
+    $requiredPDFPath = Join-Path $pdfToolDir $name
+    if (-not (Test-Path -LiteralPath $requiredPDFPath)) {
+        throw "Desktop PDF text extractor is missing: $requiredPDFPath. Rebuild the client package."
     }
 }
 $packagedBackend = (Get-Content -LiteralPath $backendMarker -Raw).Trim().ToLowerInvariant()

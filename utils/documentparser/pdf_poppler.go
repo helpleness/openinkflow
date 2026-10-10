@@ -17,17 +17,28 @@ const (
 	maxPDFExtractedTextSize  = 200 << 20
 )
 
-// extractPDFText is replaceable in package tests. Production always resolves
-// the fixed pdftotext executable from PATH; no uploaded filename or request
-// value is ever used to build the command.
+// extractPDFText is replaceable in package tests. Production prefers the
+// pdftotext shipped beside the desktop executable, then the system PATH.
+// No uploaded filename or request value is used to build the command.
 var extractPDFText = extractPDFTextWithPoppler
 
-// extractPDFTextWithPoppler invokes Poppler's mature pdftotext utility. It is
-// the primary path for PDFs because it handles page trees, compressed object
-// streams and Chinese ToUnicode CMaps that the compatibility reader cannot.
+func findPDFTextBinary() (string, error) {
+	if executable, err := os.Executable(); err == nil {
+		bundled := filepath.Join(filepath.Dir(executable), "pdf-tools", "pdftotext.exe")
+		if info, statErr := os.Stat(bundled); statErr == nil && !info.IsDir() {
+			return bundled, nil
+		}
+	}
+	return exec.LookPath("pdftotext")
+}
+
+// extractPDFTextWithPoppler invokes pdftotext (Poppler on the server, Xpdf in
+// the Windows desktop package). It is the primary path because it handles page
+// trees, compressed object streams and Chinese ToUnicode CMaps that the
+// compatibility reader cannot.
 // The boolean reports whether the executable was available.
 func extractPDFTextWithPoppler(ctx context.Context, data []byte) (string, bool, error) {
-	binary, err := exec.LookPath("pdftotext")
+	binary, err := findPDFTextBinary()
 	if err != nil {
 		return "", false, nil
 	}
@@ -59,9 +70,9 @@ func extractPDFTextWithPoppler(ctx context.Context, data []byte) (string, bool, 
 	if err := command.Run(); err != nil {
 		details := strings.TrimSpace(stderr.String())
 		if details != "" {
-			return "", true, fmt.Errorf("Poppler pdftotext 解析 PDF 失败: %s: %w", details, err)
+			return "", true, fmt.Errorf("pdftotext 解析 PDF 失败: %s: %w", details, err)
 		}
-		return "", true, fmt.Errorf("Poppler pdftotext 解析 PDF 失败: %w", err)
+		return "", true, fmt.Errorf("pdftotext 解析 PDF 失败: %w", err)
 	}
 	if err := parseContext.Err(); err != nil {
 		return "", true, fmt.Errorf("PDF 文本解析超时: %w", err)

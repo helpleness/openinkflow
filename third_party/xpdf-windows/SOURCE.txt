@@ -1,0 +1,9 @@
+The desktop installer includes the unmodified Xpdf 4.06 Windows x64
+pdftotext command-line program. The release builder downloads the official
+archive from https://dl.xpdfreader.com/xpdf-tools-win-4.06.zip and verifies its
+SHA-256 checksum:
+2b6ca45da794e7854a6468fd6c8063fde62701f001ce03fa4f603eab7e15a0b6
+
+The accompanying README, pdftotext.txt, COPYING, and COPYING3 are copied from
+the same archive. Xpdf copyright 1996-2025 Glyph & Cog, LLC. The executable
+runs as a separate process; InkFlow does not link to or modify Xpdf.

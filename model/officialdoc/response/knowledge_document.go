@@ -56,4 +56,5 @@ type KnowledgeDocumentDetail struct {
 type KnowledgeDocumentDownload struct {
 	URL       string    `json:"url"`
 	ExpiresAt time.Time `json:"expires_at"`
+	Local     bool      `json:"local,omitempty"`
 }
