@@ -396,3 +396,14 @@ go run .
 ## License
 
 [Apache License 2.0](LICENSE)
+
+## 求职联系
+
+我目前正在寻找合适的工作机会，欢迎交流相关岗位与合作机会。求职加微，谢谢喵～ 🐱
+
+- 邮箱：[gengwanwing@gmail.com](mailto:gengwanwing@gmail.com)
+- 微信：扫描下方二维码添加好友。
+
+<p align="center">
+  <img src="assets/contact/wechat-qr.png" alt="微信联系方式二维码" width="360">
+</p>
