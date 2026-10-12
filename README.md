@@ -407,3 +407,7 @@ go run .
 <p align="center">
   <img src="assets/contact/wechat-qr.png" alt="微信联系方式二维码" width="360">
 </p>
+
+## 友链
+
+- [开源社区 Linux Do](https://linux.do/)
